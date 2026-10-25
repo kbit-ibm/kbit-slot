@@ -23,6 +23,9 @@ DEFAULTS = {'encoding': 'swaps', 'sampling': 'qaoa', 'qubits': 12, 'window': 4, 
             'blocks': 24, 'blocksPerRound': 1, 'seconds': 60.0, 'backend': 'aer_statevector', 'seed': 7, 'deltaBeta': .75,
             'deltaGamma': 1.5, 'temperature': .5, 'bondDimension': backends.DEFAULT_BOND, 'referenceQubits': 18,
             'shadowPrice': True, 'penalty': (.5, .1), 'oneHotPenalty': 1.0, 'optimizationLevel': 2, 'maxQuantumSeconds': 60.0}
+# Hardware defaults from server/diagnose.py, also for simulated noisy devices: 8 swaps with p = 2 keep the signal above
+# the noise of current devices, and four blocks per round make each IBM job carry four circuits.
+HARDWARE = {'qubits': 8, 'layers': 2, 'blocks': 12, 'blocksPerRound': 4}
 EPS = 1e-9
 
 
@@ -31,7 +34,8 @@ class Cancelled(RuntimeError):
 
 
 def settings(options):
-    o = {**DEFAULTS, **(options or {})}
+    options = options or {}
+    o = {**DEFAULTS, **(HARDWARE if str(options.get('backend', '')).startswith(('ibm:', 'fake_')) else {}), **options}
     if o['encoding'] not in ENCODINGS or o['sampling'] not in SAMPLINGS:
         raise ValueError('Codificación (swaps, window, mixed) o muestreo (qaoa, uniform, exact) desconocidos.')
     if not (1 <= int(o['qubits']) <= 64 and 2 <= int(o['window']) <= 6 and 0 <= int(o['freeSlots']) <= 3 and 1 <= int(o['layers']) <= 6

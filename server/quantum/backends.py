@@ -28,7 +28,7 @@ MEMORY_SHARE = .6       # never plan to use more than this share of the free mem
 DEFAULT_BOND = 16
 TWO_QUBIT = {'cz', 'ecr', 'cx', 'rzz', 'swap'}
 # Calibrated snapshots shipped with qiskit-ibm-runtime: Heron r1 (Torino), Heron r2 (Fez) and Eagle (Sherbrooke).
-DEVICES = {}
+DEVICES = {'fake_torino': 'FakeTorino', 'fake_fez': 'FakeFez', 'fake_sherbrooke': 'FakeSherbrooke'}
 
 
 @dataclass(frozen=True)
