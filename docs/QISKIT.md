@@ -171,7 +171,24 @@ Qué ocurre:
 - La app muestra el estado del trabajo en la cola de IBM. Cancelar el cálculo cancela también el trabajo en IBM.
 - Los segundos de QPU de cada trabajo se suman, y el cálculo se detiene en `maxQuantumSeconds` (60 s). El plan informa los identificadores de trabajo y el tiempo usado.
 
-`KBIT_IBM_LOCAL=1` recorre exactamente el mismo flujo con `ibm:fake_torino` en el simulador local, y así lo prueban `server/tests/test_ibm.py`. **Este flujo no se ha ejecutado todavía en hardware real.** Hacerlo consume cuota del plan Open y queda a tu decisión.
+`KBIT_IBM_LOCAL=1` recorre exactamente el mismo flujo con `ibm:fake_torino` en el simulador local, y así lo prueban `server/tests/test_ibm.py`.
+
+### Corrida en hardware real
+
+El 25 de octubre de 2026 se corrió en `ibm_fez` (Heron r2, 156 qubits), a través del servicio y con una clave de un solo uso. La evidencia completa está en `results/hardware-ibm_fez.json`.
+
+| Dato | Valor |
+|---|---|
+| Trabajo de IBM | `dbevhqnpc3tc739mg8i0` (un trabajo con 4 circuitos) |
+| Tiempos | ≈ 30 s en cola, ≈ 15 s de ejecución, 65 s en total |
+| QPU usada | 3 s, de 600 al mes en el plan Open |
+| Configuración | Demo, 12 movimientos, 4 bloques de 8 intercambios, p = 2, 1024 muestras |
+| Circuito en el chip | Hasta 203 puertas de dos qubits, ESP ≥ 0,54 |
+| Muestras que respetan el límite | 92 % |
+| Óptimo del bloque encontrado | 4 de 4 bloques |
+| Plan | Índice 4454 → 3102, 12 productos, 18 tareas. Validado por el motor, en el servidor y en el navegador. |
+
+Comparación con la misma configuración en simulación: el recocido del navegador llega a 2628 con 12 movimientos. Un solo trabajo de 4 bloques no basta para comparar calidad; la corrida demuestra el camino completo en hardware real, no una ventaja.
 
 ## Benchmark reproducible (punto 19)
 
