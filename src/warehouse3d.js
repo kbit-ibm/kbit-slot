@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import './layout3d.js';
 
 // Scene colors come from the page's CSS tokens, so the 3D view follows the light or dark theme.
 function palette(){const css=getComputedStyle(document.documentElement),token=(name,fallback)=>css.getPropertyValue('--'+name).trim()||fallback;

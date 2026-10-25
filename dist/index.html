@@ -10,9 +10,12 @@
   <script>try{const theme=localStorage.getItem('kbit-slot-theme');if(theme==='dark'||theme==='light')document.documentElement.setAttribute('data-theme',theme);}catch{}</script>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="visual.css">
+  <link rel="stylesheet" href="designer.css">
+  <script src="layout-model.js" defer></script>
   <script src="engine.js" defer></script>
   <script src="warehouse3d.js" defer></script>
   <script src="visual-ui.js" defer></script>
+  <script src="designer.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -32,6 +35,7 @@
   <div class="wrap">
     <nav class="phases" aria-label="Navegación principal">
       <a class="nav-item" href="#almacen" data-nav="almacen">Mi almacén<small>explorar en 3D</small></a>
+      <a class="nav-item" href="#diseno" data-nav="diseno">Diseñar almacén<small>distribución y capacidad</small></a>
       <a class="nav-item" href="#planificar" data-nav="planificar">Preparar turno<small>reglas y plan</small></a>
       <a class="nav-item" href="#tareas" data-nav="tareas">Tareas<span class="nav-count" id="task-count" hidden></span><small>ejecutar en orden</small></a>
       <a class="nav-item" href="#historial" data-nav="historial">Historial<small>turnos completados</small></a>

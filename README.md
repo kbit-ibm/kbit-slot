@@ -4,7 +4,22 @@ Prototipo personal de software para explorar un almacén en 3D, simular reubicac
 
 ![Vista interactiva de Kbit Slot](docs/preview.jpg)
 
-**Demostración rápida:** abre `dist/Kbit-Slot.html` en un navegador y pulsa **Ver demo**. Puedes girar el almacén, seleccionar cajas, explorar sus relaciones y reproducir las reubicaciones.
+**Demostración rápida:** abre `dist/Kbit-Slot.html` en un navegador y entra en **Diseñar almacén**. Elige una plantilla, ajusta estantes y niveles y guarda el diseño para verlo en **Mi almacén**. La simulación de reubicaciones sigue disponible como operación de ejemplo.
+
+## Diseñador de almacenes
+
+![Diseñador de almacenes con detalle de un sector](docs/designer.png)
+
+- Cuatro bases: Compacto (96 ubicaciones), Distribución (1.728), Fulfillment (21.600) y Estantería alta (5.120).
+- Configura pasillos, estantes por lado, niveles, huecos y uno o ambos lados. Ajusta ancho de pasillos, ancho y fondo de estantes, altura entre niveles y frecuencia de cruces.
+- La capacidad, superficie estimada y altura se actualizan junto al modelo 3D. Cambia a plano 2D, vista superior o perspectiva; gira, acerca y selecciona estantes.
+- Por encima de 400 estantes se muestra una vista por sectores. Entra en uno desde el modelo o el selector para ver hasta 80 estantes detallados.
+- Cada ubicación tiene una dirección estable: `P09-I-E11-N06-U03` identifica pasillo, lado, estante, nivel y hueco.
+- **Guardar diseño** lo aplica a Mi almacén y lo conserva en este navegador. **Volver al diseño guardado** descarta el borrador; cambiar de página o de tema conserva el borrador válido durante la sesión.
+
+El modelo representa una sola planta. Las cajas ilustran el espacio: no representan inventario ni ocupación real. La superficie incluye márgenes y una zona de empaque ilustrativa; no es un plano constructivo ni una validación normativa. El límite del configurador es 64 pasillos × 100 estantes por lado × 2 lados × 12 niveles × 6 huecos = 921.600 ubicaciones teóricas. Esto valida la representación compacta, no el rendimiento de un WMS u optimizador industrial.
+
+El diseño personalizado se guarda separado de la operación de ejemplo de 30 SKUs / 32 posiciones. Todavía no alimenta el motor de reubicación; esta distinción aparece en la interfaz.
 
 ## Experiencia visual 3D
 
@@ -62,10 +77,14 @@ En Ayuda puedes reiniciar la demostración. La importación CSV acepta `order_id
 - `dist/app.js`: navegación, reglas, tareas, importación, exportación e historial.
 - `dist/visual-ui.js` y `dist/visual.css`: controles, selección, capas y reproductor visual.
 - `src/warehouse3d.js`: escena Three.js, interacción, cámara, iluminación y animación.
+- `src/layout3d.js`: vista configurable con geometría instanciada, selección y detalle por sectores.
+- `dist/layout-model.js`: validación, capacidad, geometría lógica, sectores y direcciones.
+- `dist/designer.js` y `dist/designer.css`: configurador, plano 2D y persistencia del diseño.
 - `dist/warehouse3d.js`: motor visual empaquetado para uso sin conexión.
 - `dist/engine.js`: datos, objetivo, optimización y secuencias de movimiento.
 - `server.mjs`: servidor estático local sin dependencias.
 - `tests/engine.test.cjs`: validaciones del motor y del CSV.
+- `tests/layout.test.cjs`: capacidad, direcciones únicas, cobertura de sectores y límites del modelo.
 
 Ejecutar verificaciones:
 
