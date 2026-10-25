@@ -1,6 +1,8 @@
 """Kbit Slot calculation service: classical and hybrid QAOA plans behind a small job API, plus the static app.
 
-Run from the repository root with `python -m server` and open http://127.0.0.1:8000. It listens on 127.0.0.1 only.
+Solvers: 'clasico' (the engine's annealing), 'qaoa' (hybrid blocks on a simulator or IBM hardware) and 'exacto' (MILP with
+HiGHS, small instances only). Run from the repository root with `python -m server` and open http://127.0.0.1:8000.
+It listens on 127.0.0.1 only.
 Every plan leaves through the same engine as the browser (server/bridge.cjs → dist/engine.js), which validates the
 proposal against the rules and recomputes the index before building the tasks.
 """
@@ -18,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import engine
+from . import engine, exact
 from .jobs import Jobs
 from .quantum import backends, hybrid as hybrid_solver, ibm, swap_qaoa
 
@@ -40,7 +42,7 @@ class SolveRequest(BaseModel):
     initial: list[int] = Field(min_length=1, max_length=5000)
     orders: list[Order] = Field(min_length=1, max_length=20000)
     rules: dict = Field(default_factory=dict)
-    solver: Literal['clasico', 'qaoa'] = 'clasico'
+    solver: Literal['clasico', 'qaoa', 'exacto'] = 'clasico'
     options: dict = Field(default_factory=dict)
 
 
@@ -91,6 +93,23 @@ def hybrid(job, request, orders):
     return engine.plan_from(request.spec, request.initial, orders, request.rules, target, summary)
 
 
+def exact_plan(job, request, orders):
+    seconds = request.options.get('timeLimit', 60)
+    if not isinstance(seconds, (int, float)) or not 1 <= seconds <= 600:
+        raise ValueError('El límite de tiempo del cálculo exacto debe estar entre 1 y 600 segundos.')
+    job.report({'phase': 'modelo', 'progress': .05})
+    problem = swap_qaoa.Problem.from_json(engine.problem(request.spec, request.initial, orders, request.rules))
+    job.report({'phase': 'milp', 'progress': .1, 'before': problem.cost(request.initial), 'best': problem.cost(request.initial)})
+    target, summary = exact.solve(problem, seconds)
+    if job.cancel.is_set():
+        raise engine.Cancelled('Cálculo cancelado.')
+    job.report({'phase': 'validacion', 'progress': .97, 'best': summary['value']})
+    return engine.plan_from(request.spec, request.initial, orders, request.rules, target.tolist(), summary)
+
+
+WORK = {'clasico': classical, 'qaoa': hybrid, 'exacto': exact_plan}
+
+
 def authorize_hardware(key):
     """Hardware spends the account's QPU quota: only requests carrying the server's KBIT_API_KEY may use it."""
     expected = os.environ.get('KBIT_API_KEY')
@@ -102,7 +121,8 @@ def authorize_hardware(key):
 
 @app.get('/api/health')
 def health():
-    return {'status': 'ok', 'versions': versions(), 'solvers': ['clasico', 'qaoa'], 'backends': [b.public() for b in backends.catalog()],
+    return {'status': 'ok', 'versions': versions(), 'solvers': list(WORK), 'backends': [b.public() for b in backends.catalog()],
+            'exact': {'maxMovable': exact.MAX_MOVABLE, 'maxVariables': exact.MAX_VARIABLES},
             'hardware': {'account': ibm.has_account() or ibm.local_mode(), 'keyConfigured': bool(os.environ.get('KBIT_API_KEY'))}}
 
 
@@ -116,7 +136,7 @@ def solve(request: SolveRequest, x_kbit_key: str | None = Header(default=None)):
     if request.solver == 'qaoa' and str(request.options.get('backend', '')).startswith('ibm:'):
         authorize_hardware(x_kbit_key)
     orders = [order.model_dump() for order in request.orders]
-    work = classical if request.solver == 'clasico' else hybrid
+    work = WORK[request.solver]
     job = queue.submit(request.solver, lambda job: work(job, request, orders), cancelled_error=(engine.Cancelled, hybrid_solver.Cancelled))
     return job.public()
 

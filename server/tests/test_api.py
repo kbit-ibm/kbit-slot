@@ -73,6 +73,21 @@ class Api(unittest.TestCase):
         bad_option = wait(client.post('/api/solve', json={**self.body, 'solver': 'qaoa', 'options': {'start': 'magia'}}).json()['id'])
         self.assertEqual(bad_option['status'], 'failed')
 
+    def test_exact_job_proves_the_optimum_of_a_small_instance(self):
+        body = {**self.body, 'rules': {'maxMoves': 4, 'pinned': list(range(8, 30)), 'cleaningZone': True}, 'solver': 'exacto', 'options': {'timeLimit': 60}}
+        job = wait(client.post('/api/solve', json=body).json()['id'])
+        self.assertEqual(job['status'], 'done', job['error'])
+        plan = job['result']
+        self.assertEqual(plan['solver']['id'], 'exacto')
+        self.assertEqual(plan['solver']['status'], 'óptimo')
+        self.assertAlmostEqual(plan['bound']['value'], plan['after'], places=6)
+        self.assertIn('exacto', client.get('/api/health').json()['solvers'])
+        large = wait(client.post('/api/solve', json={**self.body, 'solver': 'exacto'}).json()['id'])
+        self.assertEqual(large['status'], 'failed')
+        self.assertIn('movibles', large['error'])
+        bad = wait(client.post('/api/solve', json={**body, 'options': {'timeLimit': 0}}).json()['id'])
+        self.assertIn('límite de tiempo', bad['error'])
+
     def test_cors_allows_the_app_opened_as_a_file(self):
         response = client.get('/api/health', headers={'Origin': 'null'})
         self.assertEqual(response.headers.get('access-control-allow-origin'), 'null')

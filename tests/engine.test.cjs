@@ -155,3 +155,69 @@ test('plano por pasillos: distancia por el pasillo o por el cruce más corto, m�
   assert.throws(()=>E.createLayout({kind:'corridors',aisles:['P01'],corridors:[0],crossings:[0],slots:[{name:'x',aisle:0,z:0,level:0},{name:'x',aisle:0,z:1,level:0}]}),/repite/);
   assert.throws(()=>E.createLayout({kind:'corridors',aisles:['P01'],corridors:[0],crossings:[],slots}),/cruce/);
 });
+
+// A small warehouse whose optimum can be enumerated: 6 products in 8 slots (20 160 placements).
+function tiny(seed = 7) {
+  let state=seed;const random=()=>(state=(state*1103515245+12345)%2147483648)/2147483648;
+  const products=Array.from({length:6},(_,id)=>({id,sku:'P'+id,name:'Producto '+id,family:id%2}));
+  const I=E.createInstance({layout:{aisles:['A','B'],bays:4,reserved:[]},products,groups:['Ligero','Pesado']});
+  const orders=Array.from({length:40},(_,k)=>({id:'O'+k,items:[...new Set(Array.from({length:2+Math.floor(random()*3)},()=>Math.floor(random()*6)))]}));
+  return { I, orders, initial:[0,1,2,3,4,5] };
+}
+function bruteForce(I, initial, orders, rules) {
+  const matrix=I.flow(orders);let best=Infinity;const current=[];
+  const visit=used=>{
+    if(current.length===6){ if(I.valid(current,initial,rules))best=Math.min(best,I.cost(current,matrix));return; }
+    for(const slot of I.layout.assignable)if(!used.has(slot)){ used.add(slot);current.push(slot);visit(used);current.pop();used.delete(slot); }
+  };
+  visit(new Set());return best;
+}
+
+test('cota inferior: nunca supera el óptimo exacto, con límite de movimientos, fijos y zonas, y acota la brecha del plan',()=>{
+  for(const seed of [3,7,11]){
+    const {I,orders,initial}=tiny(seed);
+    for(const rules of [{pinned:[]},{maxMoves:2,pinned:[]},{maxMoves:3,pinned:[0]},{pinned:[1],zones:[{id:'pesados',families:[1],aisles:['B']}]}]){
+      if(!I.valid(initial,initial,rules))continue;
+      const optimum=bruteForce(I,initial,orders,rules),bound=I.lowerBound(initial,orders,rules),plan=I.optimize(initial,orders,rules,{iterations:2000,restarts:2});
+      assert.ok(bound.value<=optimum+1e-9,`semilla ${seed}, reglas ${JSON.stringify(rules)}: cota ${bound.value} > óptimo ${optimum}`);
+      assert.ok(bound.value>0);assert.ok(plan.after>=optimum-1e-9);
+      assert.equal(plan.bound.value,bound.value);assert.ok(Math.abs(plan.bound.gap-(plan.after-bound.value)/bound.value*100)<1e-9);
+    }
+  }
+  const {assignment,orders}=E.demo(),limited=E.lowerBound(assignment,orders,{maxMoves:4,pinned:[10],cleaningZone:true}),free=E.lowerBound(assignment,orders,{pinned:[10],cleaningZone:true});
+  assert.match(limited.method,/lagrangiano/);assert.ok(limited.value>=free.value-1e-9,'el límite de movimientos solo puede subir la cota');
+  assert.equal(E.optimize(assignment,orders,{maxMoves:4},{bound:false}).bound,null);assert.equal(E.planFrom(assignment,orders,{},assignment).bound,null);
+});
+
+test('secuencia de tareas: un paso por producto más uno por ciclo, sin destinos ocupados y sin cambio de orden que acorte el recorrido vacío',()=>{
+  const {assignment,orders}=E.demo();
+  for(const rules of [{maxMoves:8,pinned:[10],cleaningZone:true},{pinned:[]}]){
+    const plan=E.optimize(assignment,orders,rules);let cycles=0;const seen=new Set(),holder=new Map(assignment.map((slot,id)=>[slot,id]));
+    for(let id=0;id<30;id++){ if(seen.has(id) || assignment[id]===plan.target[id])continue;let at=id;const path=new Set();
+      while(at!==undefined && !seen.has(at) && !path.has(at)){ path.add(at);at=holder.get(plan.target[at]); }
+      if(at!==undefined && path.has(at))cycles++;path.forEach(p=>seen.add(p)); }
+    assert.equal(plan.tasks.length,plan.moved+cycles);assert.equal(plan.metrics.relocation.temporary,cycles);
+    let current=[...assignment],last=null,empty=0;
+    for(const task of plan.tasks){ if(last!==null)empty+=E.distance(last,task.from);assert.equal(current.includes(task.to),false);current=E.confirmTask(current,task);last=task.to; }
+    assert.deepEqual(current,plan.target);assert.ok(Math.abs(plan.metrics.relocation.empty-empty)<1e-9);assert.deepEqual(plan.tasks.map(t=>t.id),plan.tasks.map((_,k)=>k+1));
+    const walk=list=>list.slice(1).reduce((sum,t,k)=>sum+E.distance(list[k].to,t.from),0);
+    const runs=list=>{ let at=[...assignment];for(const t of list){ if(at[t.product]!==t.from || at.includes(t.to))return false;at=E.confirmTask(at,t); }return true; };
+    for(let i=0;i<plan.tasks.length;i++)for(let j=0;j<plan.tasks.length;j++)if(i!==j){
+      const trial=[...plan.tasks],[task]=trial.splice(i,1);trial.splice(j,0,task);
+      if(runs(trial))assert.ok(walk(trial)>=empty-1e-9,'mover la tarea '+(i+1)+' a la posición '+(j+1)+' acorta el recorrido');
+    }
+  }
+});
+
+test('métricas operativas: recorrido de picking desde empaque, pares y productos que más mejoran y traza de convergencia',()=>{
+  const {assignment,orders}=E.demo(),plan=E.optimize(assignment,orders,{pinned:[]}),m=plan.metrics,matrix=E.flow(orders);
+  assert.equal(m.unit,'u');assert.equal(m.picking.fromPacking,true);assert.equal(m.picking.orders,180);assert.ok(m.picking.after<m.picking.before);
+  assert.ok(Math.abs(m.picking.change-(m.picking.before-m.picking.after)/m.picking.before*100)<1e-9);
+  const p=m.bestPairs[0];assert.equal(p.gain,matrix[p.a][p.b]*(E.distance(assignment[p.a],assignment[p.b])-E.distance(plan.target[p.a],plan.target[p.b])));
+  for(let k=1;k<m.bestPairs.length;k++)assert.ok(m.bestPairs[k-1].gain>=m.bestPairs[k].gain);
+  // An order with one product goes from packing to its slot and back.
+  const single=E.optimize(assignment,[{id:'x',items:[3]},{id:'y',items:[3,4]}],{maxMoves:0,pinned:[]},{iterations:0});
+  assert.ok(single.metrics.picking.before>=2*E.layout.depotDistance(assignment[3]));
+  const trace=plan.solver.trace;assert.equal(trace[0].phase,'inicio');assert.equal(trace[0].index,plan.before);assert.equal(trace.at(-1).index,plan.after);
+  for(let k=1;k<trace.length;k++){ assert.ok(trace[k].index<=trace[k-1].index);assert.ok(trace[k].evaluations>=trace[k-1].evaluations); }
+});
