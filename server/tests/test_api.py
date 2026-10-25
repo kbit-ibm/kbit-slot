@@ -26,12 +26,13 @@ class Api(unittest.TestCase):
         data = demo()
         cls.body = {'initial': data['assignment'], 'orders': data['orders'], 'rules': {'maxMoves': 8, 'pinned': [10], 'cleaningZone': True}}
 
-    def test_health_lists_versions_and_solvers(self):
+    def test_health_lists_versions_solvers_and_simulators(self):
         health = client.get('/api/health').json()
         self.assertEqual(health['status'], 'ok')
         self.assertEqual(health['solvers'], ['clasico'])
         self.assertTrue(health['versions']['qiskit'] and health['versions']['node'])
-        self.assertEqual(health['backends'], [])
+        self.assertIn('aer_mps', [b['id'] for b in health['backends']])
+        self.assertEqual(client.get('/api/backends').json(), health['backends'])
 
     def test_classical_job_matches_the_browser_engine(self):
         job = wait(client.post('/api/solve', json=self.body).json()['id'])

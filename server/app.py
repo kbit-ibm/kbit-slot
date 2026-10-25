@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import engine
 from .jobs import Jobs
+from .quantum import backends
 
 ROOT = Path(__file__).resolve().parent.parent
 # "null" is the origin of the app opened as a local file (dist/Kbit-Slot.html).
@@ -67,7 +68,12 @@ def classical(job, request, orders):
 
 @app.get('/api/health')
 def health():
-    return {'status': 'ok', 'versions': versions(), 'solvers': ['clasico'], 'backends': []}
+    return {'status': 'ok', 'versions': versions(), 'solvers': ['clasico'], 'backends': [b.public() for b in backends.catalog()]}
+
+
+@app.get('/api/backends')
+def list_backends():
+    return [b.public() for b in backends.catalog()]
 
 
 @app.post('/api/solve', status_code=202)
