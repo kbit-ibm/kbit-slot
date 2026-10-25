@@ -169,4 +169,10 @@ El Worker y el puente remoto reconstruyen la misma instancia desde `motor.spec`;
 
 La matriz se calcula en el motor (`Float32Array`, 16 MB con 2.000 ubicaciones), así que no viaja en el JSON.
 
+**Plano en red (modo completo de las otras geometrías).** Flying-V, Fishbone y Chevron tienen pasillos diagonales, así que `KbitOperation.create(config, { mode: 'completa' })` entrega el grafo de circulación: `{ kind:'network', aisles, nodes, edges, levelCost, slots, reserved, depot }`.
+- `edges` es una lista de tramos `[a, b, metros]` entre nodos numerados de 0 a `nodes − 1`.
+- Cada slot es `{ name, aisle, level, node, offset }`: el nodo del pasillo frente a la ubicación y el paso del pasillo al estante.
+- La distancia entre dos ubicaciones distintas es el camino más corto entre sus nodos (Dijkstra con montículo, una vez por nodo con ubicaciones) más ambos `offset` y `levelCost × |Δnivel|`.
+- `depot` (opcional) es el nodo de empaque, la entrada del diseño. El motor rechaza tramos inválidos y circulaciones que no conecten todas las ubicaciones.
+
 `decorate` añade `layoutKey` al plan y `fromSector/toSector` a cada tarea. `blocks` agrupa tareas consecutivas por sector de origen, manteniendo su orden y dependencias. Ver [operación sobre el diseño](warehouse-operation.md).

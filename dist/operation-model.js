@@ -2,16 +2,18 @@
   'use strict';
   const distance=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
   const pad=n=>String(n).padStart(2,'0');
-  // Complete mode: every location of a Parallel design, up to COMPLETE_LIMIT, with a generated catalogue at its scale
-  // (about 30 % of the locations, at most 150 SKUs, a multiple of the six families, cleaning fitting in the last aisle).
-  const COMPLETE_LIMIT=2000,MAX_PRODUCTS=150;
+  // Complete mode: every location of a design, up to COMPLETE_LIMIT, with a generated catalogue at its scale
+  // (about 30 % of the locations, at most 150 SKUs, a multiple of the six families, cleaning fitting on the ground of its
+  // aisle: the last one in a Parallel design, the one with most ground locations in the diagonal geometries).
+  const COMPLETE_LIMIT=3000,MAX_PRODUCTS=150;
   function completeProducts(config){
-    const racks=M.sectors(config).flatMap(s=>M.racks(config,s.id)),last=Math.max(...racks.map(r=>r.aisle)),lastGround=racks.filter(r=>r.aisle===last).length*config.positions;
-    const n=Math.min(MAX_PRODUCTS,Math.floor(racks.length*config.levels*config.positions*.3),racks.length*config.positions,6*lastGround);return n-n%6;
+    const racks=M.sectors(config).flatMap(s=>M.racks(config,s.id)),ground=new Map();
+    for(const r of racks)ground.set(r.aisle,(ground.get(r.aisle)||0)+config.positions);
+    const cleaning=config.geometry==='parallel'?ground.get(Math.max(...ground.keys())):Math.max(...ground.values());
+    const n=Math.min(MAX_PRODUCTS,Math.floor(racks.length*config.levels*config.positions*.3),racks.length*config.positions,6*cleaning);return n-n%6;
   }
   function supportsComplete(value){
     const c=M.normalize(value),s=M.summary(c);
-    if(c.geometry!=='parallel')return {ok:false,reason:'El modo completo es para diseños Paralelo; las demás geometrías usan la muestra.'};
     if(s.locations>COMPLETE_LIMIT)return {ok:false,reason:'El modo completo admite hasta '+COMPLETE_LIMIT.toLocaleString('es-PE')+' ubicaciones; este diseño tiene '+s.locations.toLocaleString('es-PE')+'.'};
     const products=completeProducts(c);
     return products<12?{ok:false,reason:'El diseño es demasiado pequeño para el modo completo.'}:{ok:true,locations:s.locations,products};
@@ -26,11 +28,16 @@
     for(let i=0;i<Math.min(8,sectors.length);i++)ordered.push(sectors[Math.floor(i*sectors.length/Math.min(8,sectors.length))]);
     for(const s of sectors)if(!ordered.includes(s))ordered.push(s);
     const budget=complete?stats.locations:Math.min(64,stats.locations);
-    for(const sector of ordered){
-      const racks=M.racks(config,sector.id),total=racks.length*config.levels*config.positions,take=complete?total:Math.min(8,total,budget-selected.length);
-      for(let i=0;i<take;i++){const flat=Math.floor(i*total/take),r=racks[Math.floor(flat/(config.levels*config.positions))],l=Math.floor(flat/config.positions)%config.levels,p=flat%config.positions,name=M.slotCode(config,r,l,p);if(seen.has(name))continue;seen.add(name);selected.push({name,rack:r,sector:sector.id,level:l,position:p});}
-      if(selected.length===budget)break;
+    // Spreads limit(total) locations over a sector's racks, skipping those already in the sample, until it holds `until`.
+    function pick(sector,limit,until){
+      const racks=M.racks(config,sector.id),total=racks.length*config.levels*config.positions,take=limit(total);
+      for(let i=0;i<take&&selected.length<until;i++){const flat=Math.floor(i*total/take),r=racks[Math.floor(flat/(config.levels*config.positions))],l=Math.floor(flat/config.positions)%config.levels,p=flat%config.positions,name=M.slotCode(config,r,l,p);if(seen.has(name))continue;seen.add(name);selected.push({name,rack:r,sector:sector.id,level:l,position:p});}
     }
+    for(const sector of ordered){pick(sector,total=>complete?total:Math.min(8,total,budget-selected.length),budget);if(selected.length===budget)break;}
+    // With fewer than 4 sectors, 8 locations each leave room for fewer than the 30 example products: fill the sample up to
+    // 30 products, a reserve and a free location with the remaining ones, sector by sector.
+    const spread=selected.length,enough=Math.min(budget,Base.products.length+2);
+    for(const sector of ordered){if(selected.length>=enough)break;pick(sector,total=>total,enough);}
     const off=config.aisleWidth/2+config.rackDepth/2;
     function access(r){
       if(config.geometry==='chevron'){const sign=r.zone==='left'?-1:1,u=(r.side===0?-1:1)*off*sign;return {x:r.x-Math.cos(r.rotation)*u,z:r.z+Math.sin(r.rotation)*u};}
@@ -114,8 +121,17 @@
         crossings:[...new Set(lines.filter(l=>Math.abs(l.a.z-l.b.z)<1e-9).map(l=>l.a.z))],levelCost:config.levelHeight,accessCost:2*off,
         slots:slots.map(s=>({name:s.name,aisle:aisleIds.indexOf(s.rack.aisle),z:s.access.z,level:s.level})),reserved:[reserved]};
     }
-    const engine=Base.createInstance({layout:complete?corridors():{kind:'physical',slots:slots.map(({rack,access,node,...s})=>s),distances,reserved:[reserved]},products,groups:Base.groups});
-    const key=fingerprint(config)+(complete?'-completa':'');
+    // Other geometries (V, Fishbone, Chevron) have diagonal circulation: the engine gets the graph itself and runs the same
+    // shortest paths for every location, with the entrance as packing.
+    function network(){
+      const aisleIds=[...new Set(slots.map(s=>s.rack.aisle))].sort((a,b)=>a-b),pairs=[],entrance=M.paths(config).find(p=>p.id==='entrada')?.points[0];
+      edges.forEach((list,a)=>{for(const e of list)if(a<e.to)pairs.push([a,e.to,e.w]);});
+      return {kind:'network',name:config.name,aisles:aisleIds.map(a=>'P'+pad(a+1)),nodes:nodes.length,edges:pairs,levelCost:config.levelHeight,
+        slots:slots.map(s=>({name:s.name,aisle:aisleIds.indexOf(s.rack.aisle),level:s.level,node:s.node,offset:distance(s,s.access)})),reserved:[reserved],
+        ...(entrance&&nodeByKey.has(Math.round(entrance.x*1e6)+':'+Math.round(entrance.z*1e6))?{depot:nodeByKey.get(Math.round(entrance.x*1e6)+':'+Math.round(entrance.z*1e6))}:{})};
+    }
+    const engine=Base.createInstance({layout:complete?(config.geometry==='parallel'?corridors():network()):{kind:'physical',slots:slots.map(({rack,access,node,...s})=>s),distances,reserved:[reserved]},products,groups:Base.groups});
+    const key=fingerprint(config)+(complete?'-completa':selected.length>spread?'-muestra'+selected.length:'');
     function route(from,to){
       const a=slots[from],b=slots[to],path=[],found=search(a.node);let v=b.node;while(v!==-1){path.push(nodes[v]);if(v===a.node)break;v=found.prev[v];}path.reverse();
       return [{x:a.x,y:a.y,z:a.z},{...a.access,y:a.y},...path.map(p=>({...p,y:.6})),{...b.access,y:b.y},{x:b.x,y:b.y,z:b.z}].filter((p,i,all)=>!i||Math.hypot(p.x-all[i-1].x,p.y-all[i-1].y,p.z-all[i-1].z)>.0001);

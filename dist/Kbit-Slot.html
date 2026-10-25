@@ -710,6 +710,7 @@ input[type=file]::file-selector-button{margin-right:10px; padding:5px 10px; back
     function createLayout(spec = {}) {
       if(spec.kind==='physical')return createPhysicalLayout(spec);
       if(spec.kind === 'corridors') return corridorLayout(spec);
+      if(spec.kind === 'network') return networkLayout(spec);
       const layout = { ...DEFAULT_LAYOUT, ...spec };
       const { aisles, bays, levels, aisleSpacing, levelCost } = layout;
       if(!Array.isArray(aisles) || !aisles.length || aisles.some(a => typeof a !== 'string' || !a) || new Set(aisles).size !== aisles.length) throw new Error('El plano necesita al menos un pasillo y nombres de pasillo únicos.');
@@ -786,6 +787,58 @@ input[type=file]::file-selector-button{margin-right:10px; padding:5px 10px; back
         unit:'m', depotDistance:index => { const s = slots[index]; return Math.abs(corridors[s.aisle] - corridors[0]) + Math.abs(front - s.z) + levelCost * s.level + accessCost / 2; },
         spec:{ version:2, kind:'corridors', name:spec.name || '', aisles:[...aisles], corridors:[...corridors], crossings:[...crossings], levelCost, accessCost, levels:Math.max(...slots.map(s => s.level)) + 1,
           slots:points.map(p => ({ name:p.name, aisle:p.aisle, z:p.z, level:p.level })), reserved:reserved.map(index => slots[index].name) },
+        slots, slotCount:slots.length, distances, reserved, assignable:slots.map(slot => slot.index).filter(index => !reserved.includes(index)),
+        slotName:index => slots[index]?.name, slotIndex, distance:(a, b) => distances[a][b]
+      };
+    }
+
+    // A full designed warehouse of any geometry (kind "network"): its circulation as a graph (aisles, cross aisles, the V
+    // and the entrance as weighted edges between nodes), each location attached to the node in front of it with the step
+    // from the aisle to the shelf (offset). Walking distance is the shortest path between both nodes, plus both offsets
+    // and levelCost per level: the same metric operation-model.js uses for its sample, for thousands of locations.
+    function networkLayout(spec) {
+      const { aisles, nodes, edges, slots:points, levelCost = 1 } = spec;
+      if(!Array.isArray(aisles) || !aisles.length || new Set(aisles).size !== aisles.length) throw new Error('El diseño necesita pasillos con nombre único.');
+      if(!isCount(nodes,1) || !Array.isArray(edges) || !edges.every(e => Array.isArray(e) && isCount(e[0],0) && e[0] < nodes && isCount(e[1],0) && e[1] < nodes && e[2] >= 0 && Number.isFinite(e[2])))
+        throw new Error('La circulación del diseño no es válida: cada tramo une dos nodos con una longitud no negativa.');
+      if(!Array.isArray(points) || !points.length) throw new Error('El diseño no tiene ubicaciones.');
+      if(!(levelCost >= 0)) throw new Error('El costo por nivel no puede ser negativo.');
+      const slots = points.map((p, index) => {
+        if(typeof p.name !== 'string' || !isCount(p.aisle,0) || p.aisle >= aisles.length || !isCount(p.level,0) || !isCount(p.node,0) || p.node >= nodes || !(p.offset >= 0) || !Number.isFinite(p.offset))
+          throw new Error('La ubicación ' + index + ' del diseño no es válida.');
+        return { index, aisle:p.aisle, level:p.level, node:p.node, offset:p.offset, name:p.name };
+      });
+      const byName = new Map(slots.map(slot => [slot.name, slot.index]));
+      if(byName.size !== slots.length) throw new Error('El diseño repite nombres de ubicación.');
+      const slotIndex = name => byName.get(name);
+      const reserved = [...new Set((spec.reserved || []).map(name => { if(!byName.has(name)) throw new Error('La reserva ' + name + ' no existe en el diseño.'); return byName.get(name); }))];
+      const next = Array.from({ length:nodes }, () => []);
+      for(const [a, b, w] of edges) { next[a].push(b, w); next[b].push(a, w); }
+      // Dijkstra with a binary heap, once from every node that holds a location.
+      function shortest(from) {
+        const dist = new Float64Array(nodes).fill(Infinity), heap = [[0, from]];dist[from] = 0;
+        while(heap.length) {
+          const [d, v] = heap[0], last = heap.pop();
+          if(heap.length) { heap[0] = last;let i = 0;for(;;) { const l = 2 * i + 1, r = l + 1;let m = i;if(l < heap.length && heap[l][0] < heap[m][0]) m = l;if(r < heap.length && heap[r][0] < heap[m][0]) m = r;if(m === i) break;[heap[i], heap[m]] = [heap[m], heap[i]];i = m; } }
+          if(d > dist[v]) continue;
+          for(let k = 0; k < next[v].length; k += 2) {
+            const to = next[v][k], nd = d + next[v][k + 1];
+            if(nd < dist[to]) { dist[to] = nd;heap.push([nd, to]);let i = heap.length - 1;while(i > 0) { const p = (i - 1) >> 1;if(heap[p][0] <= heap[i][0]) break;[heap[i], heap[p]] = [heap[p], heap[i]];i = p; } }
+          }
+        }
+        return dist;
+      }
+      const from = new Map();
+      for(const slot of slots) if(!from.has(slot.node)) from.set(slot.node, shortest(slot.node));
+      const reach = from.get(slots[0].node);
+      if(slots.some(slot => !Number.isFinite(reach[slot.node]))) throw new Error('La circulación del diseño no conecta todas las ubicaciones.');
+      const distances = slots.map(a => { const row = from.get(a.node);return Float32Array.from(slots, b => a === b ? 0 : row[b.node] + a.offset + b.offset + levelCost * Math.abs(a.level - b.level)); });
+      // Packing: the depot node (the entrance), when the design has one.
+      const depot = isCount(spec.depot,0) && spec.depot < nodes ? shortest(spec.depot) : null;
+      return {
+        unit:'m', depotDistance:depot ? index => { const s = slots[index];return depot[s.node] + s.offset + levelCost * s.level; } : undefined,
+        spec:{ version:2, kind:'network', name:spec.name || '', aisles:[...aisles], nodes, edges:edges.map(e => [e[0], e[1], e[2]]), levelCost, levels:Math.max(...slots.map(s => s.level)) + 1,
+          slots:points.map(p => ({ name:p.name, aisle:p.aisle, level:p.level, node:p.node, offset:p.offset })), reserved:reserved.map(index => slots[index].name), ...(depot ? { depot:spec.depot } : {}) },
         slots, slotCount:slots.length, distances, reserved, assignable:slots.map(slot => slot.index).filter(index => !reserved.includes(index)),
         slotName:index => slots[index]?.name, slotIndex, distance:(a, b) => distances[a][b]
       };
@@ -1142,11 +1195,14 @@ input[type=file]::file-selector-button{margin-right:10px; padding:5px 10px; back
       // Demo data: cleaning products start in the first ground slots of the last aisle and the rest are shuffled over the
       // ground level (in a designed warehouse, over the whole ground level; in the demo plan, over its first free slots).
       function demo() {
-        const random=rng(814), last=layout.spec.aisles.length-1, ground=layout.assignable.filter(slot=>layout.slots[slot].level===0);
+        // Cleaning products start on the ground of one aisle: the last one, or in a network design (diagonal aisles of uneven
+        // length) the one with most ground locations.
+        const ground=layout.assignable.filter(slot=>layout.slots[slot].level===0),count=aisle=>ground.filter(slot=>layout.slots[slot].aisle===aisle).length;
+        const random=rng(814), last=layout.spec.kind==='network' ? layout.spec.aisles.reduce((best,_,aisle)=>count(aisle)>=count(best) ? aisle : best,0) : layout.spec.aisles.length-1;
         const cleaning=products.filter(p=>p.family===2).map(p=>p.id), cleaningSlots=ground.filter(slot=>layout.slots[slot].aisle===last).slice(0,cleaning.length);
         const others=ground.filter(slot=>!cleaningSlots.includes(slot));
         if(cleaningSlots.length<cleaning.length || others.length<n-cleaning.length) throw new Error('El piso del almacén no tiene lugar para los datos de ejemplo.');
-        const free=layout.spec.kind==='corridors' ? shuffle(others,random).slice(0,n-cleaning.length) : shuffle(others.slice(0,n-cleaning.length),random);
+        const free=['corridors','network'].includes(layout.spec.kind) ? shuffle(others,random).slice(0,n-cleaning.length) : shuffle(others.slice(0,n-cleaning.length),random);
         const assignment=products.map(p=>p.family===2 ? cleaningSlots[cleaning.indexOf(p.id)] : free.pop());
         const orders=[];
         for(let i=0;i<180;i++) {
@@ -1229,16 +1285,18 @@ input[type=file]::file-selector-button{margin-right:10px; padding:5px 10px; back
   'use strict';
   const distance=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
   const pad=n=>String(n).padStart(2,'0');
-  // Complete mode: every location of a Parallel design, up to COMPLETE_LIMIT, with a generated catalogue at its scale
-  // (about 30 % of the locations, at most 150 SKUs, a multiple of the six families, cleaning fitting in the last aisle).
-  const COMPLETE_LIMIT=2000,MAX_PRODUCTS=150;
+  // Complete mode: every location of a design, up to COMPLETE_LIMIT, with a generated catalogue at its scale
+  // (about 30 % of the locations, at most 150 SKUs, a multiple of the six families, cleaning fitting on the ground of its
+  // aisle: the last one in a Parallel design, the one with most ground locations in the diagonal geometries).
+  const COMPLETE_LIMIT=3000,MAX_PRODUCTS=150;
   function completeProducts(config){
-    const racks=M.sectors(config).flatMap(s=>M.racks(config,s.id)),last=Math.max(...racks.map(r=>r.aisle)),lastGround=racks.filter(r=>r.aisle===last).length*config.positions;
-    const n=Math.min(MAX_PRODUCTS,Math.floor(racks.length*config.levels*config.positions*.3),racks.length*config.positions,6*lastGround);return n-n%6;
+    const racks=M.sectors(config).flatMap(s=>M.racks(config,s.id)),ground=new Map();
+    for(const r of racks)ground.set(r.aisle,(ground.get(r.aisle)||0)+config.positions);
+    const cleaning=config.geometry==='parallel'?ground.get(Math.max(...ground.keys())):Math.max(...ground.values());
+    const n=Math.min(MAX_PRODUCTS,Math.floor(racks.length*config.levels*config.positions*.3),racks.length*config.positions,6*cleaning);return n-n%6;
   }
   function supportsComplete(value){
     const c=M.normalize(value),s=M.summary(c);
-    if(c.geometry!=='parallel')return {ok:false,reason:'El modo completo es para diseños Paralelo; las demás geometrías usan la muestra.'};
     if(s.locations>COMPLETE_LIMIT)return {ok:false,reason:'El modo completo admite hasta '+COMPLETE_LIMIT.toLocaleString('es-PE')+' ubicaciones; este diseño tiene '+s.locations.toLocaleString('es-PE')+'.'};
     const products=completeProducts(c);
     return products<12?{ok:false,reason:'El diseño es demasiado pequeño para el modo completo.'}:{ok:true,locations:s.locations,products};
@@ -1253,11 +1311,16 @@ input[type=file]::file-selector-button{margin-right:10px; padding:5px 10px; back
     for(let i=0;i<Math.min(8,sectors.length);i++)ordered.push(sectors[Math.floor(i*sectors.length/Math.min(8,sectors.length))]);
     for(const s of sectors)if(!ordered.includes(s))ordered.push(s);
     const budget=complete?stats.locations:Math.min(64,stats.locations);
-    for(const sector of ordered){
-      const racks=M.racks(config,sector.id),total=racks.length*config.levels*config.positions,take=complete?total:Math.min(8,total,budget-selected.length);
-      for(let i=0;i<take;i++){const flat=Math.floor(i*total/take),r=racks[Math.floor(flat/(config.levels*config.positions))],l=Math.floor(flat/config.positions)%config.levels,p=flat%config.positions,name=M.slotCode(config,r,l,p);if(seen.has(name))continue;seen.add(name);selected.push({name,rack:r,sector:sector.id,level:l,position:p});}
-      if(selected.length===budget)break;
+    // Spreads limit(total) locations over a sector's racks, skipping those already in the sample, until it holds `until`.
+    function pick(sector,limit,until){
+      const racks=M.racks(config,sector.id),total=racks.length*config.levels*config.positions,take=limit(total);
+      for(let i=0;i<take&&selected.length<until;i++){const flat=Math.floor(i*total/take),r=racks[Math.floor(flat/(config.levels*config.positions))],l=Math.floor(flat/config.positions)%config.levels,p=flat%config.positions,name=M.slotCode(config,r,l,p);if(seen.has(name))continue;seen.add(name);selected.push({name,rack:r,sector:sector.id,level:l,position:p});}
     }
+    for(const sector of ordered){pick(sector,total=>complete?total:Math.min(8,total,budget-selected.length),budget);if(selected.length===budget)break;}
+    // With fewer than 4 sectors, 8 locations each leave room for fewer than the 30 example products: fill the sample up to
+    // 30 products, a reserve and a free location with the remaining ones, sector by sector.
+    const spread=selected.length,enough=Math.min(budget,Base.products.length+2);
+    for(const sector of ordered){if(selected.length>=enough)break;pick(sector,total=>total,enough);}
     const off=config.aisleWidth/2+config.rackDepth/2;
     function access(r){
       if(config.geometry==='chevron'){const sign=r.zone==='left'?-1:1,u=(r.side===0?-1:1)*off*sign;return {x:r.x-Math.cos(r.rotation)*u,z:r.z+Math.sin(r.rotation)*u};}
@@ -1341,8 +1404,17 @@ input[type=file]::file-selector-button{margin-right:10px; padding:5px 10px; back
         crossings:[...new Set(lines.filter(l=>Math.abs(l.a.z-l.b.z)<1e-9).map(l=>l.a.z))],levelCost:config.levelHeight,accessCost:2*off,
         slots:slots.map(s=>({name:s.name,aisle:aisleIds.indexOf(s.rack.aisle),z:s.access.z,level:s.level})),reserved:[reserved]};
     }
-    const engine=Base.createInstance({layout:complete?corridors():{kind:'physical',slots:slots.map(({rack,access,node,...s})=>s),distances,reserved:[reserved]},products,groups:Base.groups});
-    const key=fingerprint(config)+(complete?'-completa':'');
+    // Other geometries (V, Fishbone, Chevron) have diagonal circulation: the engine gets the graph itself and runs the same
+    // shortest paths for every location, with the entrance as packing.
+    function network(){
+      const aisleIds=[...new Set(slots.map(s=>s.rack.aisle))].sort((a,b)=>a-b),pairs=[],entrance=M.paths(config).find(p=>p.id==='entrada')?.points[0];
+      edges.forEach((list,a)=>{for(const e of list)if(a<e.to)pairs.push([a,e.to,e.w]);});
+      return {kind:'network',name:config.name,aisles:aisleIds.map(a=>'P'+pad(a+1)),nodes:nodes.length,edges:pairs,levelCost:config.levelHeight,
+        slots:slots.map(s=>({name:s.name,aisle:aisleIds.indexOf(s.rack.aisle),level:s.level,node:s.node,offset:distance(s,s.access)})),reserved:[reserved],
+        ...(entrance&&nodeByKey.has(Math.round(entrance.x*1e6)+':'+Math.round(entrance.z*1e6))?{depot:nodeByKey.get(Math.round(entrance.x*1e6)+':'+Math.round(entrance.z*1e6))}:{})};
+    }
+    const engine=Base.createInstance({layout:complete?(config.geometry==='parallel'?corridors():network()):{kind:'physical',slots:slots.map(({rack,access,node,...s})=>s),distances,reserved:[reserved]},products,groups:Base.groups});
+    const key=fingerprint(config)+(complete?'-completa':selected.length>spread?'-muestra'+selected.length:'');
     function route(from,to){
       const a=slots[from],b=slots[to],path=[],found=search(a.node);let v=b.node;while(v!==-1){path.push(nodes[v]);if(v===a.node)break;v=found.prev[v];}path.reverse();
       return [{x:a.x,y:a.y,z:a.z},{...a.access,y:a.y},...path.map(p=>({...p,y:.6})),{...b.access,y:b.y},{x:b.x,y:b.y,z:b.z}].filter((p,i,all)=>!i||Math.hypot(p.x-all[i-1].x,p.y-all[i-1].y,p.z-all[i-1].z)>.0001);
@@ -5433,7 +5505,7 @@ three/build/three.module.js:
   function operationNotice(){
     const support=window.KbitOperation.supportsComplete(operation.config),complete=operation.mode==='completa';
     const choice=(value,label)=>'<button type="button" data-action="op-mode-'+value+'" class="'+(operation.mode===value?'active':'')+'" aria-pressed="'+(operation.mode===value)+'">'+label+'</button>';
-    const text=escape(operation.config.name)+' · '+(complete?E.products.length+' SKUs de ejemplo en las '+number(E.layout.slotCount)+' ubicaciones del diseño, con distancias por pasillos y cruces.':'catálogo de ejemplo en '+number(E.layout.slotCount)+' ubicaciones de muestra de tu diseño guardado.');
+    const text=escape(operation.config.name)+' · '+(complete?E.products.length+' SKUs de ejemplo en las '+number(E.layout.slotCount)+' ubicaciones del diseño, con distancias por su circulación.':'catálogo de ejemplo en '+number(E.layout.slotCount)+' ubicaciones de muestra de tu diseño guardado.');
     return '<div class="notice design-operation-note"><span>'+text+'</span>'+(support.ok?'<div class="map-tabs" role="group" aria-label="Alcance de la operación">'+choice('muestra','Muestra')+choice('completa','Completa · '+number(support.locations)+' ubic.')+'</div>':'')+'</div>';
   }
   function syncOperation(){if(state.dataset)return;const config=window.KbitDesigner.saved(),mode=config?operationMode(config):'muestra',id=config?window.KbitOperation.fingerprint(config)+(mode==='completa'?'-completa':''):KEY;if(id===contextId){if(operation&&config)operation.config.name=config.name;return;}save();planAbort?.abort();planAbort=null;busy=false;contextId=id;layoutError='';operation=null;E=Base;activeStorageKey=config?'kbit-slot-operation:'+id:KEY;try{if(config){operation=window.KbitOperation.create(config,{mode});E=operation.engine;}state=fresh();const value=JSON.parse(localStorage.getItem(activeStorageKey));if(value&&value.assignment?.length===E.products.length&&new Set(value.assignment).size===E.products.length&&value.assignment.every(i=>Number.isInteger(i)&&i>=0&&i<E.layout.slotCount)&&value.orders?.every(o=>o.items.every(i=>Number.isInteger(i)&&i>=0&&i<E.products.length))&&Array.isArray(value.history)&&value.rules?.pinned){state=value;if(operation&&state.plan&&state.plan.layoutKey!==operation.key)state.plan=null;}}catch(error){layoutError=error.message;state=fresh();}mapMode='actual';ordersVersion++;preview={key:'',plan:null};}

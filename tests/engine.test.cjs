@@ -224,3 +224,17 @@ test('métricas operativas: recorrido de picking desde empaque, pares y producto
   const trace=plan.solver.trace;assert.equal(trace[0].phase,'inicio');assert.equal(trace[0].index,plan.before);assert.equal(trace.at(-1).index,plan.after);
   for(let k=1;k<trace.length;k++){ assert.ok(trace[k].index<=trace[k-1].index);assert.ok(trace[k].evaluations>=trace[k-1].evaluations); }
 });
+
+test('plano en red: camino más corto por la circulación, más el paso al estante y la altura, y empaque en un nodo',()=>{
+  // Nodes 0–1–2 on a line (4 m each) and a diagonal 0–3 (5 m) that joins 3 to 2 (3 m): from 0 to 2 it is 8 m both ways.
+  const spec={kind:'network',aisles:['P01','P02'],nodes:4,edges:[[0,1,4],[1,2,4],[0,3,5],[3,2,3]],levelCost:1.5,depot:0,
+    slots:[{name:'A',aisle:0,level:0,node:0,offset:1},{name:'B',aisle:0,level:2,node:1,offset:1},{name:'C',aisle:1,level:0,node:2,offset:.5},{name:'D',aisle:1,level:0,node:3,offset:.5}],reserved:['D']};
+  const L=E.createLayout(spec);
+  assert.equal(L.distance(0,1),4+1+1+3);assert.equal(L.distance(0,2),8+1+.5);assert.equal(L.distance(1,3),7+1+.5+3,'de 1 a 3 por 2 (4 + 3), no por 0 (4 + 5)');assert.equal(L.distance(2,2),0);
+  for(let a=0;a<4;a++)for(let b=0;b<4;b++)assert.equal(L.distance(a,b),L.distance(b,a));
+  assert.equal(L.depotDistance(1),4+1+3);assert.deepEqual(L.assignable,[0,1,2]);assert.equal(L.spec.levels,3);
+  assert.deepEqual(E.createLayout(JSON.parse(JSON.stringify(L.spec))).distances.map(r=>[...r]),L.distances.map(r=>[...r]));
+  assert.throws(()=>E.createLayout({...spec,edges:[[0,1,4]]}),/no conecta/);
+  assert.throws(()=>E.createLayout({...spec,edges:[[0,9,4]]}),/circulación/);
+  assert.throws(()=>E.createLayout({...spec,slots:[...spec.slots,{...spec.slots[0]}]}),/repite/);
+});
