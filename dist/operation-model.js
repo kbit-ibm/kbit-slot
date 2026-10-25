@@ -2,16 +2,32 @@
   'use strict';
   const distance=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
   const pad=n=>String(n).padStart(2,'0');
+  // Complete mode: every location of a Parallel design, up to COMPLETE_LIMIT, with a generated catalogue at its scale
+  // (about 30 % of the locations, at most 150 SKUs, a multiple of the six families, cleaning fitting in the last aisle).
+  const COMPLETE_LIMIT=2000,MAX_PRODUCTS=150;
+  function completeProducts(config){
+    const racks=M.sectors(config).flatMap(s=>M.racks(config,s.id)),last=Math.max(...racks.map(r=>r.aisle)),lastGround=racks.filter(r=>r.aisle===last).length*config.positions;
+    const n=Math.min(MAX_PRODUCTS,Math.floor(racks.length*config.levels*config.positions*.3),racks.length*config.positions,6*lastGround);return n-n%6;
+  }
+  function supportsComplete(value){
+    const c=M.normalize(value),s=M.summary(c);
+    if(c.geometry!=='parallel')return {ok:false,reason:'El modo completo es para diseños Paralelo; las demás geometrías usan la muestra.'};
+    if(s.locations>COMPLETE_LIMIT)return {ok:false,reason:'El modo completo admite hasta '+COMPLETE_LIMIT.toLocaleString('es-PE')+' ubicaciones; este diseño tiene '+s.locations.toLocaleString('es-PE')+'.'};
+    const products=completeProducts(c);
+    return products<12?{ok:false,reason:'El diseño es demasiado pequeño para el modo completo.'}:{ok:true,locations:s.locations,products};
+  }
+  function catalog(count){const per=count/Base.groups.length;return Array.from({length:count},(_,id)=>{const family=Math.floor(id/per);return {id,code:'SKU-'+String(id+1).padStart(4,'0'),name:Base.groups[family]+' '+pad(id%per+1),family,category:Base.groups[family]};});}
   function fingerprint(value){const c=M.normalize(value);delete c.name;let h=2166136261;for(const ch of JSON.stringify(c))h=Math.imul(h^ch.charCodeAt(0),16777619);return 'physical-v1-'+(h>>>0).toString(16);}
-  function create(value){
-    const config=M.normalize(value),stats=M.summary(config),sectors=M.sectors(config);
+  function create(value,{mode='muestra'}={}){
+    const config=M.normalize(value),stats=M.summary(config),sectors=M.sectors(config),complete=mode==='completa';
+    if(complete){const check=supportsComplete(config);if(!check.ok)throw new Error(check.reason);}
     if(stats.locations<2)throw new Error('Para reubicar productos necesitas al menos dos ubicaciones, una libre.');
     const selected=[],seen=new Set(),ordered=[];
     for(let i=0;i<Math.min(8,sectors.length);i++)ordered.push(sectors[Math.floor(i*sectors.length/Math.min(8,sectors.length))]);
     for(const s of sectors)if(!ordered.includes(s))ordered.push(s);
-    const budget=Math.min(64,stats.locations);
+    const budget=complete?stats.locations:Math.min(64,stats.locations);
     for(const sector of ordered){
-      const racks=M.racks(config,sector.id),total=racks.length*config.levels*config.positions,take=Math.min(8,total,budget-selected.length);
+      const racks=M.racks(config,sector.id),total=racks.length*config.levels*config.positions,take=complete?total:Math.min(8,total,budget-selected.length);
       for(let i=0;i<take;i++){const flat=Math.floor(i*total/take),r=racks[Math.floor(flat/(config.levels*config.positions))],l=Math.floor(flat/config.positions)%config.levels,p=flat%config.positions,name=M.slotCode(config,r,l,p);if(seen.has(name))continue;seen.add(name);selected.push({name,rack:r,sector:sector.id,level:l,position:p});}
       if(selected.length===budget)break;
     }
@@ -86,21 +102,32 @@
       for(let count=0;count<nodes.length;count++){let v=-1;for(let i=0;i<nodes.length;i++)if(!used[i]&&(v<0||dist[i]<dist[v]))v=i;if(v<0||!Number.isFinite(dist[v]))break;used[v]=1;for(const edge of edges[v])if(dist[v]+edge.w<dist[edge.to]){dist[edge.to]=dist[v]+edge.w;prev[edge.to]=v;}}
       return {dist,prev};
     }
-    const searches=new Map();for(const slot of slots)if(!searches.has(slot.node))searches.set(slot.node,shortest(slot.node));
-    const distances=slots.map((a,i)=>slots.map((b,j)=>{if(i===j)return 0;const d=searches.get(a.node).dist[b.node];if(!Number.isFinite(d))throw new Error('No se pudo conectar la circulación de este diseño.');return d+distance(a,a.access)+distance(b,b.access)+Math.abs(a.y-b.y);}));
-    const count=Math.min(Base.products.length,slots.length-1),products=Base.products.slice(0,count),reserved=slots.at(-1).name;
-    const engine=Base.createInstance({layout:{kind:'physical',slots:slots.map(({rack,access,node,...s})=>s),distances,reserved:[reserved]},products,groups:Base.groups});
+    // Shortest paths are computed on demand: the sample needs them all for its matrix, the complete mode only for routes.
+    const searches=new Map(),search=node=>{if(!searches.has(node))searches.set(node,shortest(node));return searches.get(node);};
+    const distances=complete?null:slots.map((a,i)=>slots.map((b,j)=>{if(i===j)return 0;const d=search(a.node).dist[b.node];if(!Number.isFinite(d))throw new Error('No se pudo conectar la circulación de este diseño.');return d+distance(a,a.access)+distance(b,b.access)+Math.abs(a.y-b.y);}));
+    const count=complete?completeProducts(config):Math.min(Base.products.length,slots.length-1),products=complete?catalog(count):Base.products.slice(0,count),reserved=slots.at(-1).name;
+    // Complete mode: the same metric in closed form. In a Parallel design the graph distance between two locations is the
+    // corridor offset plus the best horizontal line (back, cross aisles, front), plus both shelf accesses and the height.
+    function corridors(){
+      const aisleIds=[...new Set(slots.map(s=>s.rack.aisle))].sort((a,b)=>a-b);
+      return {kind:'corridors',name:config.name,aisles:aisleIds.map(a=>'P'+pad(a+1)),corridors:aisleIds.map(a=>slots.find(s=>s.rack.aisle===a).access.x),
+        crossings:[...new Set(lines.filter(l=>Math.abs(l.a.z-l.b.z)<1e-9).map(l=>l.a.z))],levelCost:config.levelHeight,accessCost:2*off,
+        slots:slots.map(s=>({name:s.name,aisle:aisleIds.indexOf(s.rack.aisle),z:s.access.z,level:s.level})),reserved:[reserved]};
+    }
+    const engine=Base.createInstance({layout:complete?corridors():{kind:'physical',slots:slots.map(({rack,access,node,...s})=>s),distances,reserved:[reserved]},products,groups:Base.groups});
+    const key=fingerprint(config)+(complete?'-completa':'');
     function route(from,to){
-      const a=slots[from],b=slots[to],path=[],search=searches.get(a.node);let v=b.node;while(v!==-1){path.push(nodes[v]);if(v===a.node)break;v=search.prev[v];}path.reverse();
+      const a=slots[from],b=slots[to],path=[],found=search(a.node);let v=b.node;while(v!==-1){path.push(nodes[v]);if(v===a.node)break;v=found.prev[v];}path.reverse();
       return [{x:a.x,y:a.y,z:a.z},{...a.access,y:a.y},...path.map(p=>({...p,y:.6})),{...b.access,y:b.y},{x:b.x,y:b.y,z:b.z}].filter((p,i,all)=>!i||Math.hypot(p.x-all[i-1].x,p.y-all[i-1].y,p.z-all[i-1].z)>.0001);
     }
     function demo(){
+      if(complete)return engine.demo();
       const ids=engine.layout.assignable.slice();let seed=814;for(let i=ids.length-1;i>0;i--){seed=(Math.imul(seed,1664525)+1013904223)>>>0;const j=seed%(i+1);[ids[i],ids[j]]=[ids[j],ids[i]];}
       return {assignment:ids.slice(0,count),orders:Base.demo().orders.map(o=>({...o,items:o.items.filter(id=>id<count)})).filter(o=>o.items.length)};
     }
-    function decorate(plan){return {...plan,layoutKey:fingerprint(config),tasks:plan.tasks.map(t=>({...t,fromSector:slots[t.from].sector,toSector:slots[t.to].sector}))};}
+    function decorate(plan){return {...plan,layoutKey:key,tasks:plan.tasks.map(t=>({...t,fromSector:slots[t.from].sector,toSector:slots[t.to].sector}))};}
     function blocks(tasks){const result=[];for(const task of tasks){const key=slots[task.from].sector;let block=result.at(-1);if(!block||block.sector!==key){block={sector:key,tasks:[]};result.push(block);}block.tasks.push(task);}return result;}
-    return {config,stats,sectors,slots,engine,key:fingerprint(config),route,demo,decorate,blocks,graph:{nodes,edges,lines:lines.map(l=>({a:l.a,b:l.b}))}};
+    return {config,stats,sectors,slots,engine,key,mode:complete?'completa':'muestra',route,demo,decorate,blocks,graph:{nodes,edges,lines:lines.map(l=>({a:l.a,b:l.b}))}};
   }
-  return {create,fingerprint};
+  return {create,fingerprint,supportsComplete,COMPLETE_LIMIT};
 });

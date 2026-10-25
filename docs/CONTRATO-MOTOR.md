@@ -132,4 +132,11 @@ El contrato serializable es `{ kind:'physical', version:1, slots, distances, res
 
 El Worker y el puente remoto reconstruyen la misma instancia desde `motor.spec`; nunca deben sustituirla por el plano rectangular por defecto. `dist/remote.js` recibe la instancia activa mediante la opción `engine` y valida la propuesta con ella.
 
+**Plano por pasillos (modo completo).** Para un diseño Paralelo completo, `KbitOperation.create(config, { mode: 'completa' })` entrega `{ kind:'corridors', aisles, corridors, crossings, levelCost, accessCost, slots, reserved }`. Cada slot es `{ name, aisle, z, level }`. La distancia entre dos ubicaciones distintas se calcula así:
+- dentro de un pasillo, la diferencia de `z`;
+- entre pasillos, la diferencia de `corridors[x]` más el mínimo sobre `crossings` de `|z₁ − c| + |z₂ − c|`;
+- en ambos casos se suma `levelCost × |Δnivel| + accessCost`.
+
+La matriz se calcula en el motor (`Float32Array`, 16 MB con 2.000 ubicaciones), así que no viaja en el JSON.
+
 `decorate` añade `layoutKey` al plan y `fromSector/toSector` a cada tarea. `blocks` agrupa tareas consecutivas por sector de origen, manteniendo su orden y dependencias. Ver [operación sobre el diseño](warehouse-operation.md).

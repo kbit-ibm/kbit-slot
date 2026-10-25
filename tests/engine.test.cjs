@@ -143,3 +143,15 @@ test('problema exportado y planes externos: mismas reglas, índice recalculado y
   for(const bad of [null,[1,2],pinnedMoved,assignment.map(()=>0)])assert.throws(()=>E.planFrom(assignment,orders,rules,bad),/se descartó/);
   assert.equal(E.describe(assignment,orders,{pinned:[]}).maxMoves,null);
 });
+
+test('plano por pasillos: distancia por el pasillo o por el cruce más corto, más nivel y acceso al estante',()=>{
+  const slots=[{name:'A1',aisle:0,z:0,level:0},{name:'A2',aisle:0,z:6,level:0},{name:'A2-alto',aisle:0,z:6,level:2},{name:'B1',aisle:1,z:0,level:0},{name:'B2',aisle:1,z:9,level:0}];
+  const L=E.createLayout({kind:'corridors',aisles:['P01','P02'],corridors:[0,5],crossings:[-2,10],levelCost:1.5,accessCost:2,slots});
+  assert.equal(L.distance(0,0),0);assert.equal(L.distance(0,1),6+2);assert.equal(L.distance(1,2),3+2);assert.equal(L.distance(0,3),5+4+2);
+  assert.equal(L.distance(1,4),5+(4+1)+2,'por el cruce del frente (z = 10), no por el de atrás');
+  for(let a=0;a<5;a++)for(let b=0;b<5;b++)assert.equal(L.distance(a,b),L.distance(b,a));
+  assert.equal(L.spec.levels,3);assert.equal(L.slotIndex('B2'),4);
+  assert.throws(()=>E.createLayout({kind:'corridors',aisles:['P01'],corridors:[0],crossings:[0],slots:[{name:'x',aisle:3,z:0,level:0}]}),/no es válida/);
+  assert.throws(()=>E.createLayout({kind:'corridors',aisles:['P01'],corridors:[0],crossings:[0],slots:[{name:'x',aisle:0,z:0,level:0},{name:'x',aisle:0,z:1,level:0}]}),/repite/);
+  assert.throws(()=>E.createLayout({kind:'corridors',aisles:['P01'],corridors:[0],crossings:[],slots}),/cruce/);
+});

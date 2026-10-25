@@ -62,3 +62,20 @@ test('V circulation and entrance stay connected across depths, widths and rack s
   for(const line of r.graph.lines)assert.ok(!runs.some(rack=>M.intersects(rack,M.pathRect({points:[line.a,line.b],width:.02}))),JSON.stringify({geometry,vDepth,sides,aisleWidth}));
  }
 });
+
+test('modo completo: todas las ubicaciones de un Paralelo con la misma distancia que el grafo de circulación',()=>{
+ const c=M.fromPreset('parallel'),full=O.create(c,{mode:'completa'}),sample=O.create(c),index=(r,name)=>r.engine.layout.slotIndex(name);
+ assert.equal(full.mode,'completa');assert.equal(full.slots.length,M.summary(c).locations);assert.equal(full.engine.layout.slotCount,full.slots.length);
+ assert.notEqual(full.key,sample.key);assert.equal(full.engine.products.length%6,0);assert.ok(full.engine.products.length<=150);
+ for(const a of sample.slots)for(const b of sample.slots)assert.ok(Math.abs(sample.engine.distance(index(sample,a.name),index(sample,b.name))-full.engine.distance(index(full,a.name),index(full,b.name)))<1e-4,a.name+' → '+b.name);
+ const d=full.demo(),rules={maxMoves:6,pinned:[],zones:[]},plan=full.decorate(full.engine.optimize(d.assignment,d.orders,rules,{iterations:3000,restarts:2}));
+ assert.ok(plan.after<plan.before);assert.equal(plan.layoutKey,full.key);assert.equal(full.engine.valid(plan.target,d.assignment,rules),true);
+ const t=plan.tasks[0],path=full.route(t.from,t.to),a=full.slots[t.from],b=full.slots[t.to];assert.deepEqual(path[0],{x:a.x,y:a.y,z:a.z});assert.deepEqual(path.at(-1),{x:b.x,y:b.y,z:b.z});
+ const copy=Base.createInstance(JSON.parse(JSON.stringify(full.engine.spec)));assert.equal(copy.cost(d.assignment,copy.flow(d.orders)),full.engine.cost(d.assignment,full.engine.flow(d.orders)));
+});
+
+test('modo completo solo para Paralelo dentro del límite; las demás geometrías siguen con la muestra',()=>{
+ for(const id of ['flying-v','fishbone','chevron']){assert.equal(O.supportsComplete(M.fromPreset(id)).ok,false);assert.throws(()=>O.create(M.fromPreset(id),{mode:'completa'}),/Paralelo/);}
+ assert.match(O.supportsComplete({...M.fromPreset('parallel'),aisles:20,bays:30}).reason,/2.000|2,000/);
+ assert.equal(O.create(M.fromPreset('parallel')).mode,'muestra');
+});

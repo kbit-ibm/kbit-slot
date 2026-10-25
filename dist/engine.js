@@ -20,6 +20,7 @@
 
     function createLayout(spec = {}) {
       if(spec.kind==='physical')return createPhysicalLayout(spec);
+      if(spec.kind === 'corridors') return corridorLayout(spec);
       const layout = { ...DEFAULT_LAYOUT, ...spec };
       const { aisles, bays, levels, aisleSpacing, levelCost } = layout;
       if(!Array.isArray(aisles) || !aisles.length || aisles.some(a => typeof a !== 'string' || !a) || new Set(aisles).size !== aisles.length) throw new Error('El plano necesita al menos un pasillo y nombres de pasillo únicos.');
@@ -60,6 +61,40 @@
       const byName=new Map(slots.map(s=>[s.name,s.index])),reserved=[...new Set((spec.reserved||[]).map(name=>{if(!byName.has(name))throw new Error('La reserva física no existe.');return byName.get(name);} ))];
       const normalized={kind:'physical',version:1,aisles,levels,slots:slots.map(({index,aisle,...s})=>s),distances:distances.map(row=>Array.from(row)),reserved:reserved.map(i=>slots[i].name)};
       return {spec:normalized,slots,slotCount:slots.length,distances,reserved,assignable:slots.map(s=>s.index).filter(i=>!reserved.includes(i)),slotName:i=>slots[i]?.name,slotIndex:name=>byName.get(name),distance:(a,b)=>distances[a][b]};
+    }
+
+    // A full Parallel warehouse (kind "corridors"): every location on its aisle corridor, in metres. Walking distance is
+    // the difference along the corridor inside it; between corridors, the x offset plus the shortest detour through a
+    // crossing (front, back or intermediate cross aisle); plus levelCost per level and accessCost between two different
+    // locations (stepping from the corridor to each shelf). For Parallel designs this equals the shortest path on the
+    // circulation graph of operation-model.js, in closed form, so it scales to thousands of locations.
+    function corridorLayout(spec) {
+      const { aisles, corridors, crossings, slots:points, levelCost = 1, accessCost = 0 } = spec;
+      if(!Array.isArray(aisles) || !aisles.length || new Set(aisles).size !== aisles.length || !Array.isArray(corridors) || corridors.length !== aisles.length || !corridors.every(Number.isFinite))
+        throw new Error('El diseño necesita pasillos con nombre único y la posición de cada pasillo.');
+      if(!Array.isArray(crossings) || !crossings.length || !crossings.every(Number.isFinite)) throw new Error('El diseño necesita al menos un cruce entre pasillos.');
+      if(!Array.isArray(points) || !points.length) throw new Error('El diseño no tiene ubicaciones.');
+      if(!(levelCost >= 0) || !(accessCost >= 0)) throw new Error('Los costos por nivel y por acceso no pueden ser negativos.');
+      const slots = points.map((p, index) => {
+        if(typeof p.name !== 'string' || !isCount(p.aisle,0) || p.aisle >= aisles.length || !isCount(p.level,0) || !Number.isFinite(p.z)) throw new Error('La ubicación ' + index + ' del diseño no es válida.');
+        return { index, aisle:p.aisle, level:p.level, z:p.z, name:p.name };
+      });
+      const byName = new Map(slots.map(slot => [slot.name, slot.index]));
+      if(byName.size !== slots.length) throw new Error('El diseño repite nombres de ubicación.');
+      const slotIndex = name => byName.get(name);
+      const reserved = [...new Set((spec.reserved || []).map(name => { if(!byName.has(name)) throw new Error('La reserva ' + name + ' no existe en el diseño.'); return byName.get(name); }))];
+      const distances = slots.map(a => Float32Array.from(slots, b => {
+        if(a === b) return 0;
+        let floor = Math.abs(a.z - b.z);
+        if(a.aisle !== b.aisle) { let detour = Infinity; for(const c of crossings) detour = Math.min(detour, Math.abs(a.z - c) + Math.abs(b.z - c)); floor = Math.abs(corridors[a.aisle] - corridors[b.aisle]) + detour; }
+        return floor + levelCost * Math.abs(a.level - b.level) + accessCost;
+      }));
+      return {
+        spec:{ version:2, kind:'corridors', name:spec.name || '', aisles:[...aisles], corridors:[...corridors], crossings:[...crossings], levelCost, accessCost, levels:Math.max(...slots.map(s => s.level)) + 1,
+          slots:points.map(p => ({ name:p.name, aisle:p.aisle, z:p.z, level:p.level })), reserved:reserved.map(index => slots[index].name) },
+        slots, slotCount:slots.length, distances, reserved, assignable:slots.map(slot => slot.index).filter(index => !reserved.includes(index)),
+        slotName:index => slots[index]?.name, slotIndex, distance:(a, b) => distances[a][b]
+      };
     }
 
     function createInstance(spec = {}) {
@@ -269,11 +304,14 @@
         const next=[...assignment];next[task.product]=task.to;return next;
       }
 
-      // Demo data: cleaning products start in the first five bays of the last aisle and the rest are shuffled over the ground level.
+      // Demo data: cleaning products start in the first ground slots of the last aisle and the rest are shuffled over the
+      // ground level (in a designed warehouse, over the whole ground level; in the demo plan, over its first free slots).
       function demo() {
         const random=rng(814), last=layout.spec.aisles.length-1, ground=layout.assignable.filter(slot=>layout.slots[slot].level===0);
-        const cleaningSlots=ground.filter(slot=>layout.slots[slot].aisle===last).slice(0,5), cleaning=products.filter(p=>p.family===2).map(p=>p.id);
-        const free=shuffle(ground.filter(slot=>!cleaningSlots.includes(slot)).slice(0,n-cleaning.length),random);
+        const cleaning=products.filter(p=>p.family===2).map(p=>p.id), cleaningSlots=ground.filter(slot=>layout.slots[slot].aisle===last).slice(0,cleaning.length);
+        const others=ground.filter(slot=>!cleaningSlots.includes(slot));
+        if(cleaningSlots.length<cleaning.length || others.length<n-cleaning.length) throw new Error('El piso del almacén no tiene lugar para los datos de ejemplo.');
+        const free=layout.spec.kind==='corridors' ? shuffle(others,random).slice(0,n-cleaning.length) : shuffle(others.slice(0,n-cleaning.length),random);
         const assignment=products.map(p=>p.family===2 ? cleaningSlots[cleaning.indexOf(p.id)] : free.pop());
         const orders=[];
         for(let i=0;i<180;i++) {

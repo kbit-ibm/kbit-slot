@@ -54,6 +54,9 @@ Abre http://127.0.0.1:4173. La persistencia al abrir archivos locales depende de
 
 ## Flujo para presentar
 
+Con un diseño guardado, la operación usa sus ubicaciones. En diseños Paralelo de hasta 2.000 ubicaciones puedes elegir **Completa** para optimizar sobre todas ellas, con hasta 150 SKUs de ejemplo (ver `docs/warehouse-operation.md`).
+
+
 1. **Diseñar almacén:** elige una de las cuatro geometrías, ajusta sus medidas y guarda. **Mi almacén** coloca hasta 30 productos de ejemplo en direcciones de ese diseño.
 2. **Preparar turno:** limita los productos reubicados, fija productos y, si lo necesitas, conserva los productos de limpieza en sus sectores actuales.
 3. **Generar plan:** calcula una propuesta (con barra de avance y opción de cancelar), compara la distribución actual con la propuesta y revisa los productos reubicados.

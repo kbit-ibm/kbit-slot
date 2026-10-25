@@ -99,7 +99,12 @@ class SwapModel(Qubo):
 def candidate_pairs(problem, current):
     """Every rule-compatible pair with its single-swap index change and its effect on the relocated count."""
     n = problem.n
-    positions = np.concatenate([current, np.asarray(problem.empty_slots(current), dtype=int)]).astype(int)
+    empty = problem.empty_slots(current)
+    if len(empty) > 2 * n:
+        # A complete designed warehouse may have far more free slots than products: offer the 2n closest to the occupied
+        # ones, so the pair list stays O(n²) instead of growing with the building.
+        empty = [empty[i] for i in np.argsort(problem.D[np.ix_(empty, current)].mean(axis=1), kind='stable')[:2 * n]]
+    positions = np.concatenate([current, np.asarray(empty, dtype=int)]).astype(int)
     items = problem.movable() + list(range(n, len(positions)))
     # M[a, s] = Σ_k F[a, k] · D[s, p_k]: the index change of moving a from s_a to t is M[a, t] − M[a, s_a].
     M = problem.F @ problem.D[:, current].T

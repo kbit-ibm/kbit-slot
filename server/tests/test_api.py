@@ -5,7 +5,7 @@ import unittest
 from fastapi.testclient import TestClient
 
 from server.app import app
-from server.tests.fixtures import demo
+from server.tests.fixtures import demo, designed
 
 client = TestClient(app)
 
@@ -77,6 +77,16 @@ class Api(unittest.TestCase):
         response = client.get('/api/health', headers={'Origin': 'null'})
         self.assertEqual(response.headers.get('access-control-allow-origin'), 'null')
         self.assertIsNone(client.get('/api/health', headers={'Origin': 'https://ejemplo.com'}).headers.get('access-control-allow-origin'))
+
+    def test_designed_warehouse_in_complete_mode_runs_classical_and_hybrid(self):
+        data = designed()
+        rules = {'maxMoves': 6, 'pinned': [], 'zones': []}
+        for solver, options in (('clasico', {'iterations': 2000, 'restarts': 2}), ('qaoa', {'backend': 'statevector', 'qubits': 6, 'blocks': 3, 'layers': 2})):
+            job = wait(client.post('/api/solve', json={'spec': data['spec'], 'initial': data['assignment'], 'orders': data['orders'], 'rules': rules,
+                                                       'solver': solver, 'options': options}).json()['id'])
+            self.assertEqual(job['status'], 'done', job['error'])
+            self.assertLess(job['result']['after'], job['result']['before'])
+            self.assertLessEqual(job['result']['moved'], 6)
 
     def test_serves_the_app(self):
         self.assertIn('Kbit Slot', client.get('/').text)
