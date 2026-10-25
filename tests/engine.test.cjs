@@ -176,7 +176,7 @@ function bruteForce(I, initial, orders, rules) {
 test('cota inferior: nunca supera el óptimo exacto, con límite de movimientos, fijos y zonas, y acota la brecha del plan',()=>{
   for(const seed of [3,7,11]){
     const {I,orders,initial}=tiny(seed);
-    for(const rules of [{pinned:[]},{maxMoves:2,pinned:[]},{maxMoves:3,pinned:[0]},{pinned:[1],zones:[{id:'pesados',families:[1],aisles:['B']}]}]){
+    for(const rules of [{pinned:[]},{maxMoves:1,pinned:[]},{maxMoves:2,pinned:[]},{maxMoves:3,pinned:[0]},{maxMoves:1,pinned:[2]},{pinned:[1],zones:[{id:'pesados',families:[1],aisles:['B']}]}]){
       if(!I.valid(initial,initial,rules))continue;
       const optimum=bruteForce(I,initial,orders,rules),bound=I.lowerBound(initial,orders,rules),plan=I.optimize(initial,orders,rules,{iterations:2000,restarts:2});
       assert.ok(bound.value<=optimum+1e-9,`semilla ${seed}, reglas ${JSON.stringify(rules)}: cota ${bound.value} > óptimo ${optimum}`);
@@ -184,8 +184,11 @@ test('cota inferior: nunca supera el óptimo exacto, con límite de movimientos,
       assert.equal(plan.bound.value,bound.value);assert.ok(Math.abs(plan.bound.gap-(plan.after-bound.value)/bound.value*100)<1e-9);
     }
   }
-  const {assignment,orders}=E.demo(),limited=E.lowerBound(assignment,orders,{maxMoves:4,pinned:[10],cleaningZone:true}),free=E.lowerBound(assignment,orders,{pinned:[10],cleaningZone:true});
-  assert.match(limited.method,/lagrangiano/);assert.ok(limited.value>=free.value-1e-9,'el límite de movimientos solo puede subir la cota');
+  // Few moves: the bound from the current index minus the largest possible savings wins; many moves: the Lagrangian one.
+  const {assignment,orders}=E.demo(),rules=maxMoves=>({maxMoves,pinned:[10],cleaningZone:true}),free=E.lowerBound(assignment,orders,{pinned:[10],cleaningZone:true});
+  const few=E.lowerBound(assignment,orders,rules(2)),many=E.lowerBound(assignment,orders,rules(12));
+  assert.match(few.method,/Límite de movimientos/);assert.match(many.method,/lagrangiano/);
+  for(const bound of [few,many])assert.ok(bound.value>=free.value-1e-9,'el límite de movimientos solo puede subir la cota');
   assert.equal(E.optimize(assignment,orders,{maxMoves:4},{bound:false}).bound,null);assert.equal(E.planFrom(assignment,orders,{},assignment).bound,null);
 });
 

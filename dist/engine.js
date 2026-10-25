@@ -407,6 +407,9 @@
       // smallest scalar product of its order flows (largest first) with k's distances to the other free slots (shortest
       // first); the cheapest assignment of those per-product costs is below every plan's index. Zones restrict the slots,
       // and the relocation limit enters through a Lagrangian dual: max over λ ≥ 0 of LAP(cost + λ·moved) − λ·limit.
+      // With a relocation limit M there is a second bound: only pairs that touch a moved product change, and each such pair
+      // can at best shrink to the shortest distance it could reach (to a pinned product's slot, or between two free slots);
+      // so the index drops by at most the M largest per-product sums of those reductions. The larger of the two is returned.
       // Every plan that respects the rules costs at least this value, so (plan − bound) / bound caps the distance to the optimum.
       function lowerBound(initial, orders, rules, matrix = flow(orders)) {
         const R=compileRules(rules),BIG=1e12,movable=products.map(p=>p.id).filter(id=>!R.pinned.has(id)),pinned=[...R.pinned];
@@ -434,7 +437,13 @@
           for(let k=0;k<18;k++){ const mid=(low+high)/2,trial=solve(mid);if(trial.value>best.value){ best=trial;lambda=mid; }if(trial.moved>limit)low=mid;else high=mid; }
           const top=solve(high);if(top.value>best.value){ best=top;lambda=high; }
         }
-        return { value:Math.max(0,best.value), method:method+(lambda>0 ? ' con límite de movimientos (dual lagrangiano)' : ''), lambda };
+        const gilmore={ value:Math.max(0,best.value), method:method+(lambda>0 ? ' con límite de movimientos (dual lagrangiano)' : ''), lambda };
+        if(limit===null)return gilmore;
+        let shortest=Infinity;for(let a=0;a<m;a++)for(let b=a+1;b<m;b++)shortest=Math.min(shortest,D[slots[a]][slots[b]]);
+        const reach=new Map(pinned.map(p=>[p,Math.min(...slots.map(k=>D[k][initial[p]]))]));
+        const savings=movable.map(i=>{ let sum=0;for(let j=0;j<n;j++)if(j!==i && matrix[i][j])sum+=matrix[i][j]*Math.max(0,D[initial[i]][initial[j]]-(reach.has(j) ? reach.get(j) : shortest));return sum; }).sort((a,b)=>b-a);
+        const budget=cost(initial,matrix)-savings.slice(0,limit).reduce((a,b)=>a+b,0);
+        return budget>gilmore.value ? { value:budget, method:'Límite de movimientos: índice actual menos el mayor ahorro posible de '+limit+' productos', lambda } : gilmore;
       }
       function confirmTask(assignment, task) {
         if(task.done || assignment[task.product]!==task.from || assignment.includes(task.to))throw new Error('La ubicación cambió o el destino está ocupado.');
