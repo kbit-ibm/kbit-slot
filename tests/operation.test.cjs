@@ -74,8 +74,30 @@ test('modo completo: todas las ubicaciones de un Paralelo con la misma distancia
  const copy=Base.createInstance(JSON.parse(JSON.stringify(full.engine.spec)));assert.equal(copy.cost(d.assignment,copy.flow(d.orders)),full.engine.cost(d.assignment,full.engine.flow(d.orders)));
 });
 
-test('modo completo solo para Paralelo dentro del límite; las demás geometrías siguen con la muestra',()=>{
- for(const id of ['flying-v','fishbone','chevron']){assert.equal(O.supportsComplete(M.fromPreset(id)).ok,false);assert.throws(()=>O.create(M.fromPreset(id),{mode:'completa'}),/Paralelo/);}
- assert.match(O.supportsComplete({...M.fromPreset('parallel'),aisles:20,bays:30}).reason,/2.000|2,000/);
- assert.equal(O.create(M.fromPreset('parallel')).mode,'muestra');
+test('modo completo en V, Fishbone y Chevron: grafo de circulación con la misma distancia que la muestra',()=>{
+  for(const id of ['flying-v','fishbone','chevron']){
+    const c=M.fromPreset(id),full=O.create(c,{mode:'completa'}),sample=O.create(c),index=(r,name)=>r.engine.layout.slotIndex(name);
+    assert.equal(full.engine.layout.spec.kind,'network',id);assert.equal(full.slots.length,M.summary(c).locations);assert.equal(full.engine.products.length,150,id);
+    for(const a of sample.slots)for(const b of sample.slots)assert.ok(Math.abs(sample.engine.distance(index(sample,a.name),index(sample,b.name))-full.engine.distance(index(full,a.name),index(full,b.name)))<1e-4,id+': '+a.name+' → '+b.name);
+    const d=full.demo(),rules={maxMoves:4,pinned:[],zones:[]},plan=full.decorate(full.engine.optimize(d.assignment,d.orders,rules,{iterations:1500,restarts:1}));
+    assert.ok(plan.after<plan.before,id);assert.equal(full.engine.valid(plan.target,d.assignment,rules),true);assert.ok(plan.metrics.picking.fromPacking,id+': empaque en la entrada');
+    const t=plan.tasks[0],path=full.route(t.from,t.to),a=full.slots[t.from],b=full.slots[t.to];assert.deepEqual(path[0],{x:a.x,y:a.y,z:a.z});assert.deepEqual(path.at(-1),{x:b.x,y:b.y,z:b.z});
+    const copy=Base.createInstance(JSON.parse(JSON.stringify(full.engine.spec)));assert.equal(copy.cost(d.assignment,copy.flow(d.orders)),full.engine.cost(d.assignment,full.engine.flow(d.orders)));
+  }
+});
+
+test('modo completo para todas las geometrías hasta 3.000 ubicaciones',()=>{
+  for(const id of ['parallel','flying-v','fishbone','chevron'])assert.equal(O.supportsComplete(M.fromPreset(id)).ok,true,id);
+  assert.match(O.supportsComplete({...M.fromPreset('parallel'),aisles:20,bays:40}).reason,/3.000|3,000/);
+  assert.throws(()=>O.create({...M.fromPreset('chevron'),aisles:20,bays:40},{mode:'completa'}),/3.000|3,000/);
+  assert.equal(O.create(M.fromPreset('parallel')).mode,'muestra');
+});
+
+test('muestra de pocos sectores: se completa hasta 30 productos sin cambiar la de las plantillas',()=>{
+  const v=M.fromPreset('flying-v'),one={...v,aisles:2,bays:5,levels:1,positions:1},tall={...one,levels:7};
+  assert.equal(M.sectors(M.normalize(one)).length,1);
+  const small=O.create(one);assert.equal(small.slots.length,M.summary(one).locations);assert.equal(small.engine.products.length,9);assert.match(small.key,/-muestra10$/);
+  const big=O.create(tall);assert.equal(big.slots.length,32);assert.equal(big.engine.products.length,30);assert.equal(new Set(big.slots.map(s=>s.name)).size,32);
+  for(const id of ['parallel','flying-v','fishbone','chevron'])assert.equal(O.create(M.fromPreset(id)).key,O.fingerprint(M.fromPreset(id)),id);
+  const d=small.demo(),plan=small.decorate(small.engine.optimize(d.assignment,d.orders,{maxMoves:4,pinned:[],zones:[]}));assert.equal(plan.layoutKey,small.key);assert.ok(plan.after<=plan.before);
 });

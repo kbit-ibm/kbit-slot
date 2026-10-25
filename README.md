@@ -54,7 +54,7 @@ Abre http://127.0.0.1:4173. La persistencia al abrir archivos locales depende de
 
 ## Flujo para presentar
 
-Con un diseño guardado, la operación usa sus ubicaciones. En diseños Paralelo de hasta 2.000 ubicaciones puedes elegir **Completa** para optimizar sobre todas ellas, con hasta 150 SKUs de ejemplo (ver `docs/warehouse-operation.md`).
+Con un diseño guardado, la operación usa sus ubicaciones. En diseños de hasta 3.000 ubicaciones, de cualquiera de las cuatro geometrías, puedes elegir **Completa** para optimizar sobre todas ellas, con hasta 150 SKUs de ejemplo (ver `docs/warehouse-operation.md`).
 
 
 1. **Diseñar almacén:** elige una de las cuatro geometrías, ajusta sus medidas y guarda. **Mi almacén** coloca hasta 30 productos de ejemplo en direcciones de ese diseño.

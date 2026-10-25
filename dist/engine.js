@@ -21,6 +21,7 @@
     function createLayout(spec = {}) {
       if(spec.kind==='physical')return createPhysicalLayout(spec);
       if(spec.kind === 'corridors') return corridorLayout(spec);
+      if(spec.kind === 'network') return networkLayout(spec);
       const layout = { ...DEFAULT_LAYOUT, ...spec };
       const { aisles, bays, levels, aisleSpacing, levelCost } = layout;
       if(!Array.isArray(aisles) || !aisles.length || aisles.some(a => typeof a !== 'string' || !a) || new Set(aisles).size !== aisles.length) throw new Error('El plano necesita al menos un pasillo y nombres de pasillo únicos.');
@@ -97,6 +98,58 @@
         unit:'m', depotDistance:index => { const s = slots[index]; return Math.abs(corridors[s.aisle] - corridors[0]) + Math.abs(front - s.z) + levelCost * s.level + accessCost / 2; },
         spec:{ version:2, kind:'corridors', name:spec.name || '', aisles:[...aisles], corridors:[...corridors], crossings:[...crossings], levelCost, accessCost, levels:Math.max(...slots.map(s => s.level)) + 1,
           slots:points.map(p => ({ name:p.name, aisle:p.aisle, z:p.z, level:p.level })), reserved:reserved.map(index => slots[index].name) },
+        slots, slotCount:slots.length, distances, reserved, assignable:slots.map(slot => slot.index).filter(index => !reserved.includes(index)),
+        slotName:index => slots[index]?.name, slotIndex, distance:(a, b) => distances[a][b]
+      };
+    }
+
+    // A full designed warehouse of any geometry (kind "network"): its circulation as a graph (aisles, cross aisles, the V
+    // and the entrance as weighted edges between nodes), each location attached to the node in front of it with the step
+    // from the aisle to the shelf (offset). Walking distance is the shortest path between both nodes, plus both offsets
+    // and levelCost per level: the same metric operation-model.js uses for its sample, for thousands of locations.
+    function networkLayout(spec) {
+      const { aisles, nodes, edges, slots:points, levelCost = 1 } = spec;
+      if(!Array.isArray(aisles) || !aisles.length || new Set(aisles).size !== aisles.length) throw new Error('El diseño necesita pasillos con nombre único.');
+      if(!isCount(nodes,1) || !Array.isArray(edges) || !edges.every(e => Array.isArray(e) && isCount(e[0],0) && e[0] < nodes && isCount(e[1],0) && e[1] < nodes && e[2] >= 0 && Number.isFinite(e[2])))
+        throw new Error('La circulación del diseño no es válida: cada tramo une dos nodos con una longitud no negativa.');
+      if(!Array.isArray(points) || !points.length) throw new Error('El diseño no tiene ubicaciones.');
+      if(!(levelCost >= 0)) throw new Error('El costo por nivel no puede ser negativo.');
+      const slots = points.map((p, index) => {
+        if(typeof p.name !== 'string' || !isCount(p.aisle,0) || p.aisle >= aisles.length || !isCount(p.level,0) || !isCount(p.node,0) || p.node >= nodes || !(p.offset >= 0) || !Number.isFinite(p.offset))
+          throw new Error('La ubicación ' + index + ' del diseño no es válida.');
+        return { index, aisle:p.aisle, level:p.level, node:p.node, offset:p.offset, name:p.name };
+      });
+      const byName = new Map(slots.map(slot => [slot.name, slot.index]));
+      if(byName.size !== slots.length) throw new Error('El diseño repite nombres de ubicación.');
+      const slotIndex = name => byName.get(name);
+      const reserved = [...new Set((spec.reserved || []).map(name => { if(!byName.has(name)) throw new Error('La reserva ' + name + ' no existe en el diseño.'); return byName.get(name); }))];
+      const next = Array.from({ length:nodes }, () => []);
+      for(const [a, b, w] of edges) { next[a].push(b, w); next[b].push(a, w); }
+      // Dijkstra with a binary heap, once from every node that holds a location.
+      function shortest(from) {
+        const dist = new Float64Array(nodes).fill(Infinity), heap = [[0, from]];dist[from] = 0;
+        while(heap.length) {
+          const [d, v] = heap[0], last = heap.pop();
+          if(heap.length) { heap[0] = last;let i = 0;for(;;) { const l = 2 * i + 1, r = l + 1;let m = i;if(l < heap.length && heap[l][0] < heap[m][0]) m = l;if(r < heap.length && heap[r][0] < heap[m][0]) m = r;if(m === i) break;[heap[i], heap[m]] = [heap[m], heap[i]];i = m; } }
+          if(d > dist[v]) continue;
+          for(let k = 0; k < next[v].length; k += 2) {
+            const to = next[v][k], nd = d + next[v][k + 1];
+            if(nd < dist[to]) { dist[to] = nd;heap.push([nd, to]);let i = heap.length - 1;while(i > 0) { const p = (i - 1) >> 1;if(heap[p][0] <= heap[i][0]) break;[heap[i], heap[p]] = [heap[p], heap[i]];i = p; } }
+          }
+        }
+        return dist;
+      }
+      const from = new Map();
+      for(const slot of slots) if(!from.has(slot.node)) from.set(slot.node, shortest(slot.node));
+      const reach = from.get(slots[0].node);
+      if(slots.some(slot => !Number.isFinite(reach[slot.node]))) throw new Error('La circulación del diseño no conecta todas las ubicaciones.');
+      const distances = slots.map(a => { const row = from.get(a.node);return Float32Array.from(slots, b => a === b ? 0 : row[b.node] + a.offset + b.offset + levelCost * Math.abs(a.level - b.level)); });
+      // Packing: the depot node (the entrance), when the design has one.
+      const depot = isCount(spec.depot,0) && spec.depot < nodes ? shortest(spec.depot) : null;
+      return {
+        unit:'m', depotDistance:depot ? index => { const s = slots[index];return depot[s.node] + s.offset + levelCost * s.level; } : undefined,
+        spec:{ version:2, kind:'network', name:spec.name || '', aisles:[...aisles], nodes, edges:edges.map(e => [e[0], e[1], e[2]]), levelCost, levels:Math.max(...slots.map(s => s.level)) + 1,
+          slots:points.map(p => ({ name:p.name, aisle:p.aisle, level:p.level, node:p.node, offset:p.offset })), reserved:reserved.map(index => slots[index].name), ...(depot ? { depot:spec.depot } : {}) },
         slots, slotCount:slots.length, distances, reserved, assignable:slots.map(slot => slot.index).filter(index => !reserved.includes(index)),
         slotName:index => slots[index]?.name, slotIndex, distance:(a, b) => distances[a][b]
       };
@@ -453,11 +506,14 @@
       // Demo data: cleaning products start in the first ground slots of the last aisle and the rest are shuffled over the
       // ground level (in a designed warehouse, over the whole ground level; in the demo plan, over its first free slots).
       function demo() {
-        const random=rng(814), last=layout.spec.aisles.length-1, ground=layout.assignable.filter(slot=>layout.slots[slot].level===0);
+        // Cleaning products start on the ground of one aisle: the last one, or in a network design (diagonal aisles of uneven
+        // length) the one with most ground locations.
+        const ground=layout.assignable.filter(slot=>layout.slots[slot].level===0),count=aisle=>ground.filter(slot=>layout.slots[slot].aisle===aisle).length;
+        const random=rng(814), last=layout.spec.kind==='network' ? layout.spec.aisles.reduce((best,_,aisle)=>count(aisle)>=count(best) ? aisle : best,0) : layout.spec.aisles.length-1;
         const cleaning=products.filter(p=>p.family===2).map(p=>p.id), cleaningSlots=ground.filter(slot=>layout.slots[slot].aisle===last).slice(0,cleaning.length);
         const others=ground.filter(slot=>!cleaningSlots.includes(slot));
         if(cleaningSlots.length<cleaning.length || others.length<n-cleaning.length) throw new Error('El piso del almacén no tiene lugar para los datos de ejemplo.');
-        const free=layout.spec.kind==='corridors' ? shuffle(others,random).slice(0,n-cleaning.length) : shuffle(others.slice(0,n-cleaning.length),random);
+        const free=['corridors','network'].includes(layout.spec.kind) ? shuffle(others,random).slice(0,n-cleaning.length) : shuffle(others.slice(0,n-cleaning.length),random);
         const assignment=products.map(p=>p.family===2 ? cleaningSlots[cleaning.indexOf(p.id)] : free.pop());
         const orders=[];
         for(let i=0;i<180;i++) {
