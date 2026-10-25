@@ -17,6 +17,7 @@ Prototipo personal de software para explorar un almacén en 3D, simular reubicac
 - Filtra por familia para destacar un grupo de productos.
 - Reproduce, pausa, acelera (1×, 2×, 3×) y reinicia la simulación. Las cajas recorren una secuencia ilustrativa de movimientos, incluidos los pasos temporales.
 - Cambia a **Plano** para volver a las 32 ubicaciones en 2D.
+- Alterna **Tema oscuro / Tema claro** desde la cabecera; la escena 3D usa los mismos colores del tema y la preferencia se guarda en el navegador.
 
 La reproducción es una demostración visual: no confirma movimientos ni modifica las tareas del turno. La geometría 3D es ilustrativa y los recorridos no representan un sistema físico de navegación. La experiencia está centrada en el frontend, con datos y estado locales. Requiere WebGL para 3D; el plano 2D permite continuar cuando WebGL no está disponible.
 
@@ -57,7 +58,7 @@ En Ayuda puedes reiniciar la demostración. La importación CSV acepta `order_id
 ## Estructura
 
 - `dist/index.html`: estructura de la aplicación.
-- `dist/styles.css`: diseño responsive.
+- `dist/styles.css`: diseño responsive tipo plancha de despacho: tokens de color claro y oscuro, papel milimetrado, paneles con rótulo y tablero de solapas.
 - `dist/app.js`: navegación, reglas, tareas, importación, exportación e historial.
 - `dist/visual-ui.js` y `dist/visual.css`: controles, selección, capas y reproductor visual.
 - `src/warehouse3d.js`: escena Three.js, interacción, cámara, iluminación y animación.
@@ -80,4 +81,4 @@ npm run build
 npm run export
 ```
 
-Tipografía DM Sans con su licencia OFL y Three.js con licencia MIT en `dist/assets/`.
+Tipografías Barlow Condensed e IBM Plex Mono (subconjunto latino, woff2) con sus licencias OFL y Three.js con licencia MIT en `dist/assets/`.
