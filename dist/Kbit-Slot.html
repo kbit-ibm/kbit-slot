@@ -648,24 +648,41 @@ input[type=file]::file-selector-button{margin-right:10px; padding:5px 10px; back
           changed(initial, assignment) <= R.maxMoves && [...R.pinned].every(id => assignment[id] === initial[id]);
       }
 
+      // Index change of moving product a to an empty slot, or of swapping a and b, in O(n) instead of recomputing all pairs. Requires symmetric distances.
+      function deltaMove(assignment, matrix, a, slot) { const from=D[assignment[a]],to=D[slot],flows=matrix[a];let delta=0;for(let k=0;k<n;k++)if(k!==a){const s=assignment[k];delta+=flows[k]*(to[s]-from[s]);}return delta; }
+      function deltaSwap(assignment, matrix, a, b) { const from=D[assignment[a]],to=D[assignment[b]],fa=matrix[a],fb=matrix[b];let delta=0;for(let k=0;k<n;k++)if(k!==a&&k!==b){const s=assignment[k];delta+=(fa[k]-fb[k])*(to[s]-from[s]);}return delta; }
+
+      // Mutable search state: assignment, slot occupancy, index and relocated count, all updated incrementally.
+      function createSearch(initial, matrix, R, start) {
+        const p=[...start],occupancy=new Int32Array(layout.slotCount).fill(-1),F=matrix.map(row=>Float64Array.from(row));p.forEach((slot,id)=>occupancy[slot]=id);
+        const search={ p, occupancy, cost:cost(p,matrix), moved:changed(initial,p), evaluations:0,
+          movedDelta(a,slot,b){ const s=p[a];let d=(slot!==initial[a])-(s!==initial[a]);if(b>=0)d+=(s!==initial[b])-(slot!==initial[b]);return d; },
+          feasible(a,slot,b){ return R.fits(a,slot) && (b<0 || (!R.pinned.has(b) && R.fits(b,p[a]))) && search.moved+search.movedDelta(a,slot,b)<=R.maxMoves; },
+          delta(a,slot,b){ search.evaluations++;return b>=0 ? deltaSwap(p,F,a,b) : deltaMove(p,F,a,slot); },
+          apply(a,slot,b,delta){ const s=p[a];search.moved+=search.movedDelta(a,slot,b);p[a]=slot;occupancy[slot]=a;if(b>=0){p[b]=s;occupancy[s]=b;}else occupancy[s]=-1;search.cost+=delta; }
+        };
+        return search;
+      }
+      // Best-improvement descent: each round applies the single move or swap that lowers the index the most.
+      function descend(search, R, movable, rounds, history) {
+        const {p,occupancy}=search;
+        for(let round=0;round<rounds;round++) {
+          let best=0,move=null;
+          for(const a of movable) for(let slot=0;slot<layout.slotCount;slot++) {
+            if(slot===p[a])continue;const b=occupancy[slot];if(b>=0 && (b<a || R.pinned.has(b)))continue;
+            if(!search.feasible(a,slot,b))continue;const delta=search.delta(a,slot,b);if(delta<best){best=delta;move=[a,slot,b];}
+          }
+          if(!move)return;search.apply(...move,best);history.push(search.cost);
+        }
+      }
+
       function optimize(initial, orders, rules) {
         if(!valid(initial,initial,rules)) throw new Error('La distribución actual no cumple las reglas. Revisa los productos fijos y la zona de limpieza.');
-        const R=compileRules(rules),matrix=flow(orders),assignment=[...initial],history=[];let current=cost(assignment,matrix);const before=current;
-        for(let round=0;round<80;round++) {
-          let best=current,bestAssignment=null;
-          const occupancy=Array(layout.slotCount).fill(-1);assignment.forEach((slot,id)=>occupancy[slot]=id);
-          for(let a=0;a<n;a++) {
-            if(R.pinned.has(a))continue;
-            for(let slot=0;slot<layout.slotCount;slot++) {
-              if(slot===assignment[a])continue;const b=occupancy[slot];if(b>=0 && (b<a || R.pinned.has(b)))continue;
-              const candidate=[...assignment];candidate[a]=slot;if(b>=0)candidate[b]=assignment[a];
-              if(!valid(candidate,initial,rules))continue;
-              const value=cost(candidate,matrix);if(value<best){best=value;bestAssignment=candidate;}
-            }
-          }
-          if(!bestAssignment)break;assignment.splice(0,n,...bestAssignment);current=best;history.push(best);
-        }
-        return {initial:[...initial],target:assignment,before,after:current,improvement:before ? (before-current)/before*100 : 0,moved:changed(initial,assignment),history,rules:JSON.parse(JSON.stringify(rules)),tasks:makeTasks(initial,assignment,rules)};
+        const R=compileRules(rules),matrix=flow(orders),search=createSearch(initial,matrix,R,initial),history=[],before=search.cost;
+        descend(search,R,products.map(p=>p.id).filter(id=>!R.pinned.has(id)),80,history);
+        const target=[...search.p],after=cost(target,matrix);
+        if(Math.abs(after-search.cost)>1e-6*Math.max(1,before) || !valid(target,initial,rules)) throw new Error('El cálculo incremental no coincide con el índice. Informa este caso.');
+        return {initial:[...initial],target,before,after,improvement:before ? (before-after)/before*100 : 0,moved:changed(initial,target),history,rules:JSON.parse(JSON.stringify(rules)),tasks:makeTasks(initial,target,rules)};
       }
 
       // Moves products one at a time; a cycle borrows a free slot, reserved slots first, preferring one inside the product's zone.
@@ -716,7 +733,7 @@ input[type=file]::file-selector-button{margin-right:10px; padding:5px 10px; back
       }
 
       return { spec:transfer, layout, products, groups:families, slotName:layout.slotName, distance:layout.distance, zones:rules => compileRules(rules).zones,
-        demo, flow, cost, changed, valid, optimize, makeTasks, confirmTask, parseCSV };
+        demo, flow, cost, deltaMove, deltaSwap, changed, valid, optimize, makeTasks, confirmTask, parseCSV };
     }
 
     return { ...createInstance(), createInstance, createLayout, DEFAULT_LAYOUT, CLEANING_ZONE };

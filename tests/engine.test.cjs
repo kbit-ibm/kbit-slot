@@ -80,3 +80,19 @@ test('plano y catálogo inválidos se rechazan con mensajes claros',()=>{
   assert.throws(()=>E.createLayout({aisles:['A','A']}),/únicos/);assert.throws(()=>E.createLayout({levels:0}),/enteros positivos/);
   assert.throws(()=>E.createLayout({reserved:['Z99']}),/Z99/);assert.throws(()=>E.createInstance({layout:{aisles:['A'],bays:8,reserved:[]}}),/más productos/);
 });
+
+test('costo incremental: mover e intercambiar coinciden con recalcular el índice completo',()=>{
+  for(const I of [E,E.createInstance({layout:{levels:2,levelCost:1.5}})]){
+    const {assignment,orders}=I.demo(),matrix=I.flow(orders),base=I.cost(assignment,matrix);let checked=0;
+    for(let a=0;a<30;a+=3){
+      for(let b=a+1;b<30;b+=4){const swapped=[...assignment];[swapped[a],swapped[b]]=[swapped[b],swapped[a]];assert(Math.abs(I.deltaSwap(assignment,matrix,a,b)-(I.cost(swapped,matrix)-base))<1e-9);checked++;}
+      for(const slot of I.layout.assignable.filter(slot=>!assignment.includes(slot))){const moved=[...assignment];moved[a]=slot;assert(Math.abs(I.deltaMove(assignment,matrix,a,slot)-(I.cost(moved,matrix)-base))<1e-9);checked++;}
+    }
+    assert(checked>50);
+  }
+});
+
+test('la búsqueda voraz reproduce los resultados del motor anterior',()=>{
+  const {assignment,orders}=E.demo();
+  for(const [maxMoves,after] of [[0,4454],[2,4100],[4,3780],[6,3482],[8,3256],[12,3059],[30,2722]])assert.equal(E.optimize(assignment,orders,{maxMoves,pinned:[10],cleaningZone:true}).after,after);
+});
