@@ -76,15 +76,17 @@ En Ayuda puedes reiniciar la demostración. La importación CSV acepta `order_id
 
 ## Servicio de cálculo y Qiskit (opcional)
 
-Un servicio en Python agrega dos motores a «Preparar turno»: el mismo cálculo clásico en el servidor y un híbrido QAOA de Qiskit sobre simuladores (Statevector, Aer statevector y Aer MPS). Ver `docs/QISKIT.md`.
+Un servicio en Python agrega dos motores a «Preparar turno»: el mismo cálculo clásico en el servidor y un híbrido QAOA de Qiskit, con bloques de intercambios, ventanas con corrección Húngara o ambos. Corre sobre simuladores ideales (Statevector, Aer statevector, Aer MPS), sobre equipos de IBM simulados con su ruido o sobre hardware real de IBM. Ver `docs/QISKIT.md`.
 
 ```bash
 python -m venv .venv
 .venv/bin/pip install -r server/requirements.txt
-.venv/bin/python -m server
+.venv/bin/python -m server                                   # http://127.0.0.1:8000
+.venv/bin/python -m server.diagnose --device fake_torino     # ¿qué tamaño de bloque resiste el ruido?
+.venv/bin/python -m server.benchmark                         # clásico, QAOA y controles; resultados en results/
 ```
 
-Abre http://127.0.0.1:8000. Desde el archivo independiente, pulsa «Conectar» bajo «Motor de cálculo» en Preparar turno. El híbrido muestra su resultado junto a la referencia clásica: a esta escala no supera al recocido del navegador.
+Abre http://127.0.0.1:8000. Desde el archivo independiente, pulsa «Conectar» bajo «Motor de cálculo» en Preparar turno. El híbrido muestra su resultado junto a la referencia clásica: a esta escala no supera al recocido del navegador, y el benchmark lo compara también con el mismo procedimiento usando muestras al azar. El hardware de IBM requiere una cuenta y `KBIT_API_KEY`; consume tiempo de QPU.
 
 ## Estructura
 
