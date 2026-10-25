@@ -29,7 +29,7 @@ class Api(unittest.TestCase):
     def test_health_lists_versions_solvers_and_simulators(self):
         health = client.get('/api/health').json()
         self.assertEqual(health['status'], 'ok')
-        self.assertEqual(health['solvers'], ['clasico'])
+        self.assertIn('qaoa', health['solvers'])
         self.assertTrue(health['versions']['qiskit'] and health['versions']['node'])
         self.assertIn('aer_mps', [b['id'] for b in health['backends']])
         self.assertEqual(client.get('/api/backends').json(), health['backends'])
@@ -43,6 +43,26 @@ class Api(unittest.TestCase):
         self.assertLessEqual(plan['after'], 3256)
         self.assertEqual(job['progress']['progress'], 1)
 
+    def test_hybrid_job_returns_a_validated_plan_with_quantum_metrics(self):
+        body = {**self.body, 'solver': 'qaoa', 'options': {'backend': 'statevector', 'qubits': 8, 'blocks': 4, 'layers': 2}}
+        job = wait(client.post('/api/solve', json=body).json()['id'])
+        self.assertEqual(job['status'], 'done', job['error'])
+        solver = job['result']['solver']
+        self.assertEqual(solver['id'], 'qaoa-intercambios')
+        self.assertEqual(solver['start'], 'none')
+        self.assertEqual(solver['blocks'], 4)
+        self.assertLessEqual(job['result']['after'], 4454)
+        self.assertLessEqual(job['result']['moved'], 8)
+
+    def test_cancel_a_running_job(self):
+        body = {**self.body, 'solver': 'qaoa', 'options': {'backend': 'statevector', 'qubits': 10, 'blocks': 400, 'seconds': 120}}
+        job_id = client.post('/api/solve', json=body).json()['id']
+        while client.get(f'/api/jobs/{job_id}').json()['status'] == 'queued':
+            time.sleep(.05)
+        time.sleep(.5)
+        self.assertEqual(client.delete(f'/api/jobs/{job_id}').status_code, 200)
+        self.assertEqual(wait(job_id)['status'], 'cancelled')
+
     def test_invalid_requests_are_rejected(self):
         self.assertEqual(client.post('/api/solve', json={**self.body, 'solver': 'magia'}).status_code, 422)
         self.assertEqual(client.post('/api/solve', json={**self.body, 'extra': 1}).status_code, 422)
@@ -50,6 +70,8 @@ class Api(unittest.TestCase):
         broken = wait(client.post('/api/solve', json={**self.body, 'rules': {'zones': [{'families': [0], 'aisles': ['Z']}]}}).json()['id'])
         self.assertEqual(broken['status'], 'failed')
         self.assertIn('Z', broken['error'])
+        bad_option = wait(client.post('/api/solve', json={**self.body, 'solver': 'qaoa', 'options': {'start': 'magia'}}).json()['id'])
+        self.assertEqual(bad_option['status'], 'failed')
 
     def test_cors_allows_the_app_opened_as_a_file(self):
         response = client.get('/api/health', headers={'Origin': 'null'})

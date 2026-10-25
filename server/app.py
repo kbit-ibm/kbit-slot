@@ -1,4 +1,4 @@
-"""Kbit Slot calculation service: plans behind a small job API, plus the static app.
+"""Kbit Slot calculation service: classical and hybrid QAOA plans behind a small job API, plus the static app.
 
 Run from the repository root with `python -m server` and open http://127.0.0.1:8000. It listens on 127.0.0.1 only.
 Every plan leaves through the same engine as the browser (server/bridge.cjs → dist/engine.js), which validates the
@@ -19,11 +19,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import engine
 from .jobs import Jobs
-from .quantum import backends
+from .quantum import backends, swap_qaoa
 
 ROOT = Path(__file__).resolve().parent.parent
 # "null" is the origin of the app opened as a local file (dist/Kbit-Slot.html).
 ORIGINS = [origin.strip() for origin in os.environ.get('KBIT_ALLOWED_ORIGINS', 'null,http://127.0.0.1:4173,http://localhost:4173').split(',') if origin.strip()]
+STARTS = {'greedy': {'iterations': 0}, 'annealing': {}}
 
 
 class Order(BaseModel):
@@ -38,7 +39,7 @@ class SolveRequest(BaseModel):
     initial: list[int] = Field(min_length=1, max_length=5000)
     orders: list[Order] = Field(min_length=1, max_length=20000)
     rules: dict = Field(default_factory=dict)
-    solver: Literal['clasico'] = 'clasico'
+    solver: Literal['clasico', 'qaoa'] = 'clasico'
     options: dict = Field(default_factory=dict)
 
 
@@ -66,9 +67,32 @@ def classical(job, request, orders):
     return engine.solve(request.spec, request.initial, orders, request.rules, request.options, on_progress=job.report, cancel=job.cancel)
 
 
+def hybrid(job, request, orders):
+    options = dict(request.options)
+    # Default start: the current layout, so the blocks do the work and their gain is attributable (from a greedy plan at
+    # the relocation limit the disjoint-swap blocks rarely find anything; see docs/QISKIT.md).
+    start = options.pop('start', 'none')
+    if start not in (*STARTS, 'none'):
+        raise ValueError('El inicio debe ser greedy, annealing o none.')
+    job.report({'phase': 'inicio', 'progress': .02})
+    problem = swap_qaoa.Problem.from_json(engine.problem(request.spec, request.initial, orders, request.rules))
+    job.report({'before': problem.cost(request.initial), 'best': problem.cost(request.initial)})
+    if start == 'none':
+        target, label = request.initial, 'Distribución actual'
+    else:
+        warm = engine.solve(request.spec, request.initial, orders, request.rules, STARTS[start], cancel=job.cancel,
+                            on_progress=lambda s: job.report({'phase': 'inicio', 'progress': .02 + .06 * s['progress'], 'best': s['best']}))
+        target, label = warm['target'], warm['solver']['label']
+    job.report({'phase': 'qaoa', 'progress': .1})
+    target, summary = swap_qaoa.solve(problem, target, options, report=job.report, cancel=job.cancel)
+    summary.update({'start': start, 'startLabel': label, 'initialCost': problem.cost(request.initial)})
+    job.report({'phase': 'validacion', 'progress': .97})
+    return engine.plan_from(request.spec, request.initial, orders, request.rules, target, summary)
+
+
 @app.get('/api/health')
 def health():
-    return {'status': 'ok', 'versions': versions(), 'solvers': ['clasico'], 'backends': [b.public() for b in backends.catalog()]}
+    return {'status': 'ok', 'versions': versions(), 'solvers': ['clasico', 'qaoa'], 'backends': [b.public() for b in backends.catalog()]}
 
 
 @app.get('/api/backends')
@@ -79,7 +103,8 @@ def list_backends():
 @app.post('/api/solve', status_code=202)
 def solve(request: SolveRequest):
     orders = [order.model_dump() for order in request.orders]
-    job = queue.submit(request.solver, lambda job: classical(job, request, orders), cancelled_error=(engine.Cancelled,))
+    work = classical if request.solver == 'clasico' else hybrid
+    job = queue.submit(request.solver, lambda job: work(job, request, orders), cancelled_error=(engine.Cancelled, swap_qaoa.Cancelled))
     return job.public()
 
 

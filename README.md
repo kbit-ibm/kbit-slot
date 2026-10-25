@@ -70,6 +70,18 @@ En Ayuda puedes reiniciar la demostración. La importación CSV acepta `order_id
 - Persistencia en `localStorage`, separada por navegador y origen. Los archivos CSV se procesan localmente. El historial y las confirmaciones no se sincronizan con otros usuarios.
 - No incluye WMS, inventario de cantidades, autenticación, lectores QR ni Qiskit. Esas integraciones son trabajo posterior.
 
+## Servicio de cálculo y Qiskit (opcional)
+
+Un servicio en Python agrega dos motores a «Preparar turno»: el mismo cálculo clásico en el servidor y un híbrido QAOA de Qiskit sobre simuladores (Statevector, Aer statevector y Aer MPS). Ver `docs/QISKIT.md`.
+
+```bash
+python -m venv .venv
+.venv/bin/pip install -r server/requirements.txt
+.venv/bin/python -m server
+```
+
+Abre http://127.0.0.1:8000. El archivo independiente y `npm start` también se conectan a ese servicio si está activo. El híbrido muestra su resultado junto a la referencia clásica: a esta escala no supera al recocido del navegador.
+
 ## Estructura
 
 - `dist/index.html`: estructura de la aplicación.
@@ -84,6 +96,8 @@ En Ayuda puedes reiniciar la demostración. La importación CSV acepta `order_id
 - `dist/engine.js`: datos, objetivo, optimización y secuencias de movimiento. Acepta otros planos (pasillos, posiciones, niveles, reservas) y zonas por familia; el formato está en `docs/CONTRATO-MOTOR.md`.
 - `server.mjs`: servidor estático local sin dependencias.
 - `tests/engine.test.cjs`: validaciones del motor y del CSV.
+- `dist/remote.js`: cliente del servicio de cálculo.
+- `server/`: servicio FastAPI, puente al motor (`bridge.cjs`), simuladores y QAOA (`quantum/`), y sus pruebas (`tests/`).
 - `tests/layout.test.cjs`: capacidad, direcciones únicas, cobertura de sectores y límites del modelo.
 
 Ejecutar verificaciones:
