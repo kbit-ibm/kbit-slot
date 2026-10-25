@@ -45,7 +45,7 @@ def call(request, on_progress=None, cancel=None):
                 if message['type'] == 'progress' and on_progress:
                     on_progress(message['state'])
                 elif message['type'] in ('result', 'problem'):
-                    result = message.get('plan', message.get('problem'))
+                    result = message.get('plan', message.get('problem', message.get('value')))
                 elif message['type'] == 'error':
                     error = message['message']
             details = process.stderr.read().strip()
@@ -60,6 +60,11 @@ def call(request, on_progress=None, cancel=None):
     if error or process.returncode:
         raise EngineError(error or details or 'El motor terminó con error.')
     return result
+
+
+def demo(spec=None):
+    """The engine's demo instance: {'spec', 'assignment', 'orders'}."""
+    return call({'action': 'demo', 'spec': spec or {}})
 
 
 def problem(spec, initial, orders, rules):

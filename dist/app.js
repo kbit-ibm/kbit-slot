@@ -9,7 +9,7 @@
   const percentage=value=>new Intl.NumberFormat('es-PE',{minimumFractionDigits:1,maximumFractionDigits:1}).format(value);
   const flaps=value=>'<span class="flaps" aria-hidden="true">'+[...String(value)].map(ch=>'<span class="flap">'+escape(ch)+'</span>').join('')+'</span><span class="sr-only">'+escape(value)+'</span>';
   const formatDate=value=>new Intl.DateTimeFormat('es-PE',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'America/Lima'}).format(new Date(value));
-  function fresh(){const data=E.demo();return{version:1,...data,source:'Pedidos de ejemplo',synthetic:true,rules:{maxMoves:6,cleaningZone:true,pinned:[10]},engine:{mode:'local',backend:'aer_statevector',qubits:12},plan:null,history:[]};}
+  function fresh(){const data=E.demo();return{version:1,...data,source:'Pedidos de ejemplo',synthetic:true,rules:{maxMoves:6,cleaningZone:true,pinned:[10]},engine:{mode:'local',backend:'aer_statevector',qubits:12,encoding:'swaps',window:3},plan:null,history:[]};}
   let state=fresh(),page='almacen',mapMode='actual',busy=false,toastTimer;
   let visualProps=null,visualController=null,designerController=null,operationDemo=false;
   let planAbort=null,planProgress=null,ordersVersion=0,preview={key:'',plan:null};
@@ -52,37 +52,40 @@
       '<p class="visual-micro-note">'+icon('info')+'Modelo ilustrativo. Explora los productos y los cambios del plan desde esta vista.</p></aside></div>';
   }
   function rulePanel(){return '<aside class="side-stack rules-stack"><section class="panel"><div class="panel-head"><div><h2>Las reglas de tu turno</h2><p>El plan se adapta a lo que puedes mover.</p></div>'+icon('spark')+'</div><form class="rule-form" id="rules-form"><div class="field-group"><div class="range-label"><label class="field-label" for="max-moves">Productos a reubicar, máximo</label><span class="range-value"><output id="moves-output" for="max-moves">'+state.rules.maxMoves+'</output><small>SKUs</small></span></div><input id="max-moves" name="maxMoves" type="range" min="2" max="12" step="2" value="'+state.rules.maxMoves+'"><p class="field-help">Cuenta productos que cambian de posición. Los pasos temporales se muestran por separado.</p></div><div class="field-group"><label class="check-label"><input type="checkbox" id="cleaning-zone" '+(state.rules.cleaningZone?'checked':'')+'><span>Mantener limpieza en pasillo D<small>Los productos de limpieza conservan su zona asignada.</small></span></label></div><div class="field-group pin-group"><label class="field-label" for="pin-search">Productos que no se mueven</label><input id="pin-search" type="search" placeholder="Buscar producto…" class="pin-search" aria-label="Buscar producto para fijar"><div class="pin-list">'+E.products.map(p=>'<label data-product-name="'+escape(p.name.toLowerCase())+'"><input type="checkbox" name="pinned" value="'+p.id+'" '+(state.rules.pinned.includes(p.id)?'checked':'')+'>'+escape(p.name)+'<span>'+E.slotName(state.assignment[p.id])+'</span></label>').join('')+'</div></div>'+engineGroup()+'<div class="rule-submit">'+submitBlock()+'</div></form></section><p class="quiet-note">'+icon('info')+'D08 queda reservado como espacio temporal. El plan incluye la secuencia para realizar los intercambios.</p></aside>';}
-  const phases={voraz:'Mejora directa',recocido:'Recocido simulado',pulido:'Pulido final',listo:'Preparando tareas',cola:'En cola del servidor',inicio:'Inicio clásico',validacion:'Validando la propuesta'};
+  const phases={voraz:'Mejora directa',recocido:'Recocido simulado',pulido:'Pulido final',listo:'Preparando tareas',cola:'En cola del servidor',inicio:'Inicio clásico',validacion:'Validando la propuesta',control:'Control por bloques'};
   function progressText(){const p=planProgress,pct=Math.round((p?.progress||0)*100),phase=p?.phase==='qaoa'?'QAOA · bloque '+(p.block||0)+' de '+(p.blocks||'…'):phases[p?.phase]||'Calculando';
     return {pct,label:(p?phase:'Preparando cálculo')+' · '+pct+' %',note:p&&p.best!=null?'Mejor índice '+number(p.best)+(p.before!=null?' · antes '+number(p.before):''):'El cálculo corre aparte: puedes seguir usando la página.'};}
   // Where the plan is computed: this browser, or the Python service (classical or hybrid QAOA on a simulator).
-  const engineSettings=()=>({mode:'local',backend:'aer_statevector',qubits:12,...state.engine});
+  const engineSettings=()=>({mode:'local',backend:'aer_statevector',qubits:12,encoding:'swaps',window:3,...state.engine});
   function engineGroup(){
     const s=engineSettings(),health=window.KbitRemote?.status(),online=!!health,quantum=online&&health.solvers.includes('qaoa');
     const backends=(health?.backends||[]).filter(b=>b.available),backend=backends.find(b=>b.id===s.backend)||backends[0];
     const option=(value,label,enabled=true)=>'<option value="'+value+'"'+(s.mode===value?' selected':'')+(enabled?'':' disabled')+'>'+label+'</option>';
     return '<div class="field-group engine-group"><label class="field-label" for="engine-mode">Motor de cálculo</label><select id="engine-mode" class="field-select">'+option('local','Navegador · clásico')+option('server','Servidor · clásico',online)+option('qaoa','Servidor · QAOA simulado',quantum)+'</select>'+
       '<div class="quantum-options"'+(s.mode==='qaoa'&&quantum?'':' hidden')+'><label class="field-label" for="quantum-backend">Simulador</label><select id="quantum-backend" class="field-select">'+backends.map(b=>'<option value="'+b.id+'"'+(b.id===backend?.id?' selected':'')+'>'+escape(b.label)+' (≤ '+b.maxQubits+' q)</option>').join('')+'</select>'+
-      '<div class="range-label"><label class="field-label" for="quantum-qubits">Qubits por bloque</label><span class="range-value"><output id="qubits-output" for="quantum-qubits">'+Math.min(s.qubits,backend?.maxQubits||s.qubits)+'</output><small>qubits</small></span></div><input id="quantum-qubits" type="range" min="4" max="'+Math.min(backend?.maxQubits||29,29)+'" value="'+s.qubits+'"><p class="field-help">'+escape(backend?.description||'')+'</p></div>'+
+      '<p class="field-help">'+escape(backend?.description||'')+'</p>'+'<label class="field-label" for="quantum-encoding">Codificación</label><select id="quantum-encoding" class="field-select">'+[['swaps','Intercambios simultáneos'],['window','Ventanas · Húngaro'],['mixed','Mixta']].map(([value,label])=>'<option value="'+value+'"'+(s.encoding===value?' selected':'')+'>'+label+'</option>').join('')+'</select>'+
+      (s.encoding!=='window'?'<div class="range-label"><label class="field-label" for="quantum-qubits">Intercambios por bloque</label><span class="range-value"><output id="qubits-output" for="quantum-qubits">'+Math.min(s.qubits,backend?.maxQubits||s.qubits)+'</output><small>qubits</small></span></div><input id="quantum-qubits" type="range" min="4" max="'+Math.min(backend?.maxQubits||29,29)+'" value="'+s.qubits+'">':'')+
+      (s.encoding!=='swaps'?'<div class="range-label"><label class="field-label" for="quantum-window">Productos por ventana</label><span class="range-value"><output id="window-output" for="quantum-window">'+s.window+'</output><small>≈ '+s.window*(s.window+1)+' qubits</small></span></div><input id="quantum-window" type="range" min="2" max="'+(backend&&backend.maxQubits<20?3:4)+'" value="'+Math.min(s.window,backend&&backend.maxQubits<20?3:4)+'">':'')+'</div>'+
       '<p class="field-help" id="server-status">'+(online?'Servidor conectado · Qiskit '+escape(health.versions.qiskit||'—')+(health.versions['qiskit-aer']?' · Aer '+escape(health.versions['qiskit-aer']):''):window.KbitRemote?.checked()?'Servidor no disponible. Para usarlo: <code>python -m server</code>. <button type="button" class="link-button" data-action="probe-server">Reintentar</button>':'Servidor de cálculo sin comprobar. <button type="button" class="link-button" data-action="probe-server">Conectar</button>')+'</p></div>';
   }
-  function readEngine(){const mode=$('engine-mode')?.value||'local';return {mode,backend:$('quantum-backend')?.value||engineSettings().backend,qubits:Number($('quantum-qubits')?.value||engineSettings().qubits)};}
+  function readEngine(){const s=engineSettings(),mode=$('engine-mode')?.value||'local';return {...s,mode,backend:$('quantum-backend')?.value||s.backend,encoding:$('quantum-encoding')?.value||s.encoding,qubits:Number($('quantum-qubits')?.value||s.qubits),window:Number($('quantum-window')?.value||s.window)};}
   function refreshEngine(){const group=document.querySelector('.engine-group');if(!group||busy)return;state.engine=readEngine();group.outerHTML=engineGroup();wireEngine();}
   function wireEngine(){
-    $('engine-mode')?.addEventListener('change',refreshEngine);$('quantum-backend')?.addEventListener('change',refreshEngine);
+    $('engine-mode')?.addEventListener('change',refreshEngine);$('quantum-backend')?.addEventListener('change',refreshEngine);$('quantum-encoding')?.addEventListener('change',refreshEngine);
+    $('quantum-window')?.addEventListener('input',event=>{$('window-output').textContent=event.target.value;});
     $('quantum-qubits')?.addEventListener('input',event=>{$('qubits-output').textContent=event.target.value;});
   }
   function computePlan(rules,signal){
     const s=engineSettings(),options={signal,onProgress:showProgress};
     if(s.mode==='local')return E.solveAsync(state.assignment,state.orders,rules,options);
-    return window.KbitRemote.solve(state.assignment,state.orders,rules,{...options,solver:s.mode==='qaoa'?'qaoa':'clasico',options:s.mode==='qaoa'?{backend:s.backend,qubits:s.qubits}:{}}).then(async plan=>{
+    return window.KbitRemote.solve(state.assignment,state.orders,rules,{...options,solver:s.mode==='qaoa'?'qaoa':'clasico',options:s.mode==='qaoa'?{backend:s.backend,qubits:s.qubits,encoding:s.encoding,window:s.window}:{}}).then(async plan=>{
       // A hybrid plan is shown next to the classical reference for the same rules, computed here in the worker.
-      if(plan.solver?.id==='qaoa-intercambios'){const reference=await E.solveAsync(state.assignment,state.orders,rules,{signal});plan.solver.reference={after:reference.after,label:reference.solver.label};}
+      if(plan.solver?.encoding){const reference=await E.solveAsync(state.assignment,state.orders,rules,{signal});plan.solver.reference={after:reference.after,label:reference.solver.label};}
       return plan;});
   }
   function quantumRows(p){
-    const s=p.solver;if(s?.id!=='qaoa-intercambios')return '';const row=(label,value)=>'<div class="detail-row"><span>'+label+'</span><strong>'+value+'</strong></div>';
-    return row('Qubits por bloque',s.qubits+(s.exact?'':' · aproximado'))+row('Bloques aceptados',s.acceptedBlocks+' de '+s.blocks)+row('Muestras factibles',percentage((s.feasibleShots||0)*100)+'%')+
+    const s=p.solver;if(!s?.encoding)return '';const row=(label,value)=>'<div class="detail-row"><span>'+label+'</span><strong>'+value+'</strong></div>';
+    return row('Qubits por bloque',s.qubits+(s.noisy?' · con ruido':s.exact?'':' · aproximado'))+(s.maxIsaTwoQubitGates!=null?row('Puertas de 2 qubits en el chip',number(s.maxIsaTwoQubitGates))+row('Éxito estimado (ESP)',percentage((s.minEsp||0)*100)+'%'):'')+row('Bloques aceptados',s.acceptedBlocks+' de '+s.blocks)+row('Muestras factibles',percentage((s.feasibleShots||0)*100)+'%')+
       row('Mejora de los bloques QAOA',number(s.qiskitGain)+' puntos')+(s.reference?row('Referencia clásica',number(s.reference.after)+(s.reference.after<p.after?' · mejor':s.reference.after>p.after?' · peor':' · igual')):'');
   }
   function submitBlock(){

@@ -13,6 +13,7 @@ process.stdin.on('end', () => {
     const request = JSON.parse(input), instance = Engine.createInstance(request.spec || {});
     const { initial, orders, rules } = request;
     if(request.action === 'problem') emit({ type:'problem', problem:instance.describe(initial, orders, rules) });
+    else if(request.action === 'demo') emit({ type:'result', value:{ spec:instance.spec, ...instance.demo() } });
     else if(request.action === 'plan') emit({ type:'result', plan:instance.planFrom(initial, orders, rules, request.target, request.solver) });
     else if(request.action === 'solve') {
       const solver = instance.createSolver(initial, orders, rules, request.options || {});

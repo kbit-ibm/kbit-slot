@@ -6,7 +6,8 @@ import numpy as np
 from qiskit.quantum_info import Statevector
 
 from server import engine
-from server.quantum import backends, swap_qaoa
+from server.quantum import backends, hybrid, swap_qaoa
+from server.quantum.qubo import ramp_circuit
 from server.tests.fixtures import demo
 
 
@@ -50,7 +51,7 @@ class SwapModel(unittest.TestCase):
         model = swap_qaoa.build_model(self.problem, positions, pairs, changes)
         bits = ((np.arange(2 ** model.qubits)[:, None] >> np.arange(model.qubits)) & 1)
         energy = model.evaluate(bits)
-        circuit = swap_qaoa.ramp_circuit(model, 4, .75, 1.5)
+        circuit = ramp_circuit(model, 4, .75, 1.5)
         circuit.remove_final_measurements()
         probabilities = Statevector(circuit).probabilities()
         self.assertLess(probabilities @ energy, energy.mean())
@@ -65,7 +66,7 @@ class SwapModel(unittest.TestCase):
             self.assertLessEqual(int(fixed @ model.moved_change), budget)
 
     def test_hybrid_respects_rules_and_reports_its_work(self):
-        target, summary = swap_qaoa.solve(self.problem, self.start, {'backend': 'statevector', 'qubits': 8, 'blocks': 6, 'seed': 2})
+        target, summary = hybrid.solve(self.problem, self.start, {'backend': 'statevector', 'qubits': 8, 'blocks': 6, 'seed': 2})
         self.problem.check(target)
         self.assertLessEqual(self.problem.cost(target), 4454)
         self.assertEqual(summary['blocks'], 6)
@@ -76,18 +77,17 @@ class SwapModel(unittest.TestCase):
 
     def test_cancellation_and_invalid_options(self):
         cancel = threading.Event(); cancel.set()
-        with self.assertRaises(swap_qaoa.Cancelled):
-            swap_qaoa.solve(self.problem, self.start, {'backend': 'statevector', 'qubits': 6, 'blocks': 3}, cancel=cancel)
-        with self.assertRaises(ValueError):
-            swap_qaoa.solve(self.problem, self.start, {'qubits': 0})
-        with self.assertRaises(ValueError):
-            swap_qaoa.solve(self.problem, self.start, {'backend': 'inexistente'})
+        with self.assertRaises(hybrid.Cancelled):
+            hybrid.solve(self.problem, self.start, {'backend': 'statevector', 'qubits': 6, 'blocks': 3}, cancel=cancel)
+        for bad in ({'qubits': 0}, {'backend': 'inexistente'}, {'encoding': 'magia'}, {'sampling': 'magia'}):
+            with self.assertRaises(ValueError):
+                hybrid.solve(self.problem, self.start, bad)
 
     def test_mps_reaches_more_qubits_on_a_two_level_warehouse(self):
         data = demo(levels=2)
         rules = {'maxMoves': 20, 'pinned': [10], 'cleaningZone': True}
         problem = swap_qaoa.Problem.from_json(engine.problem(data['spec'], data['assignment'], data['orders'], rules))
-        target, summary = swap_qaoa.solve(problem, data['assignment'], {'backend': 'aer_mps', 'qubits': 28, 'blocks': 1, 'layers': 1, 'shots': 256})
+        target, summary = hybrid.solve(problem, data['assignment'], {'backend': 'aer_mps', 'qubits': 28, 'blocks': 1, 'layers': 1, 'shots': 256})
         problem.check(target)
         self.assertGreater(summary['qubits'], backends.find('statevector').max_qubits)
         self.assertFalse(summary['exact'], 'enlace 16 con 28 qubits es aproximado')
@@ -95,3 +95,21 @@ class SwapModel(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class Controls(unittest.TestCase):
+    """The same blocks with the circuit, with uniform samples and with exact enumeration."""
+
+    def test_exact_control_bounds_every_sampler_on_the_same_blocks(self):
+        data = demo()
+        rules = {'maxMoves': 12, 'pinned': [10], 'cleaningZone': True}
+        problem = swap_qaoa.Problem.from_json(engine.problem({}, data['assignment'], data['orders'], rules))
+        results = {}
+        for sampling in ('qaoa', 'uniform', 'exact'):
+            target, summary = hybrid.solve(problem, data['assignment'], {'backend': 'statevector', 'qubits': 8, 'blocks': 1, 'seed': 3, 'sampling': sampling})
+            problem.check(target)
+            results[sampling] = problem.cost(target)
+            self.assertEqual(summary['sampling'], sampling)
+        self.assertLessEqual(results['exact'], results['qaoa'])
+        self.assertLessEqual(results['exact'], results['uniform'])
+        self.assertTrue(summary['id'].startswith('control-exacto'))

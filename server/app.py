@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import engine
 from .jobs import Jobs
-from .quantum import backends, swap_qaoa
+from .quantum import backends, hybrid as hybrid_solver, swap_qaoa
 
 ROOT = Path(__file__).resolve().parent.parent
 # "null" is the origin of the app opened as a local file (dist/Kbit-Slot.html).
@@ -84,7 +84,7 @@ def hybrid(job, request, orders):
                             on_progress=lambda s: job.report({'phase': 'inicio', 'progress': .02 + .06 * s['progress'], 'best': s['best']}))
         target, label = warm['target'], warm['solver']['label']
     job.report({'phase': 'qaoa', 'progress': .1})
-    target, summary = swap_qaoa.solve(problem, target, options, report=job.report, cancel=job.cancel)
+    target, summary = hybrid_solver.solve(problem, target, options, report=job.report, cancel=job.cancel)
     summary.update({'start': start, 'startLabel': label, 'initialCost': problem.cost(request.initial)})
     job.report({'phase': 'validacion', 'progress': .97})
     return engine.plan_from(request.spec, request.initial, orders, request.rules, target, summary)
@@ -104,7 +104,7 @@ def list_backends():
 def solve(request: SolveRequest):
     orders = [order.model_dump() for order in request.orders]
     work = classical if request.solver == 'clasico' else hybrid
-    job = queue.submit(request.solver, lambda job: work(job, request, orders), cancelled_error=(engine.Cancelled, swap_qaoa.Cancelled))
+    job = queue.submit(request.solver, lambda job: work(job, request, orders), cancelled_error=(engine.Cancelled, hybrid_solver.Cancelled))
     return job.public()
 
 
