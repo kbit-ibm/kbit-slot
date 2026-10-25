@@ -29,7 +29,7 @@
         if(signal?.aborted)throw abortError();
         const state=await request(base+'/api/jobs/'+job.id);
         onProgress?.({...state.progress,done:false});
-        if(state.status==='done')return E.planFrom(initial,orders,rules,state.result.target,state.result.solver);
+        if(state.status==='done')return E.planFrom(initial,orders,rules,state.result.target,{...state.result.solver,bound:state.result.bound||state.result.solver?.bound});
         if(state.status==='failed')throw new Error(state.error);
         if(state.status==='cancelled')throw abortError();
         await pause(350,signal);
