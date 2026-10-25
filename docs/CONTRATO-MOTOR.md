@@ -90,6 +90,10 @@ Un pasillo, nivel o posición que no existe en el plano produce un error con el 
 | `solveAsync(inicial, pedidos, reglas, { onProgress, signal, ...opciones })` | Promesa con el mismo plan, calculado en un Web Worker creado desde el propio motor (funciona también abriendo el HTML como archivo). Sin Worker, calcula en tramos de 25 ms sobre la página. `signal` (AbortController) cancela y rechaza con un error `AbortError`. |
 | `createSolver(inicial, pedidos, reglas, opciones)` | Solver por tramos: `step(ms)` devuelve el estado y `result()` el plan cuando `done` es verdadero. |
 | `deltaMove(distribución, flujos, producto, posición)` y `deltaSwap(distribución, flujos, a, b)` | Cambio del índice al mover a una posición vacía o intercambiar dos productos, en O(n). |
+| `describe(inicial, pedidos, reglas)` | El problema en JSON para solvers externos: distancias, flujos, posiciones permitidas por producto, fijos y máximo de movimientos. |
+| `planFrom(inicial, pedidos, reglas, propuesta, solver)` | Convierte una propuesta externa en plan. Rechaza la que no cumpla las reglas y recalcula el índice. |
+
+El servicio en Python (`server/`, ver `docs/QISKIT.md`) usa estas mismas funciones a través de `server/bridge.cjs`, y `dist/remote.js` valida en el navegador cada plan que recibe.
 
 El estado de progreso es `{ done, phase, progress (0–1), before, best, evaluations, iteration, elapsed }`. `phase` pasa por `voraz` → `recocido` → `pulido` → `listo`. La interfaz no debe llamar a `optimize` en la página para cálculos que el usuario espera: usa `solveAsync`.
 

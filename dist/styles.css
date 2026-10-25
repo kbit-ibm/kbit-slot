@@ -212,6 +212,10 @@ input[type=checkbox]{width:16px; height:16px; margin:0; flex-shrink:0; accent-co
 .check-label small{display:block; margin-top:2px; font-family:var(--f-data); font-weight:400; font-size:var(--fs-xs); line-height:1.5; letter-spacing:0; text-transform:none; color:var(--muted)}
 .pin-search{width:100%; min-height:34px; margin-top:8px; padding:6px 8px; background:var(--panel); border:var(--line) solid var(--ink); border-radius:0; font-size:var(--fs-xs)}
 .pin-search::placeholder{color:var(--muted)}
+.field-select{width:100%; min-height:34px; margin-top:8px; padding:6px 8px; background:var(--panel); border:var(--line) solid var(--ink); border-radius:0; font-size:var(--fs-xs)}
+.quantum-options{margin-top:10px}
+.quantum-options .range-label{margin-top:10px}
+#server-status code{font-size:var(--fs-xs)}
 .pin-list{display:grid; max-height:210px; overflow:auto; margin-top:8px; border-top:1px solid var(--rule)}
 .pin-list label{display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid var(--rule); font-size:var(--fs-xs); cursor:pointer}
 .pin-list label>span{margin-left:auto; font-family:var(--f-display); font-weight:700; font-size:var(--fs-sm)}

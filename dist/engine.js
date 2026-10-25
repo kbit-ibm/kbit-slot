@@ -173,11 +173,28 @@
             const target=[...search.p],after=cost(target,matrix);
             if(Math.abs(after-search.cost)>1e-6*Math.max(1,before) || !valid(target,initial,rules)) throw new Error('El cálculo incremental no coincide con el índice. Informa este caso.');
             const annealed=settings.iterations>0 && movable.length>0;
-            return {initial:[...initial],target,before,after,improvement:before ? (before-after)/before*100 : 0,moved:changed(initial,target),history,rules:JSON.parse(JSON.stringify(rules)),tasks:makeTasks(initial,target,rules),
-              solver:{ id:annealed ? 'voraz+recocido' : 'voraz', label:annealed ? 'Voraz + recocido simulado' : 'Búsqueda voraz', seed:settings.seed, iterations:iteration, evaluations:search.evaluations,
-                milliseconds:Math.round(elapsed), greedy:greedyCost, timeLimited }};
+            return planObject(initial,rules,target,before,after,history,{ id:annealed ? 'voraz+recocido' : 'voraz', label:annealed ? 'Voraz + recocido simulado' : 'Búsqueda voraz', seed:settings.seed, iterations:iteration,
+              evaluations:search.evaluations, milliseconds:Math.round(elapsed), greedy:greedyCost, timeLimited });
           }
         };
+      }
+      function planObject(initial, rules, target, before, after, history, solver) {
+        return {initial:[...initial],target:[...target],before,after,improvement:before ? (before-after)/before*100 : 0,moved:changed(initial,target),history,rules:JSON.parse(JSON.stringify(rules)),tasks:makeTasks(initial,target,rules),solver};
+      }
+      // A target computed elsewhere (server, quantum sampler) becomes a plan only after passing the same rules and a full recomputation of the index.
+      function planFrom(initial, orders, rules, target, solver = {}) {
+        if(!valid(initial,initial,rules)) throw new Error('La distribución actual no cumple las reglas. Revisa los productos fijos y la zona de limpieza.');
+        if(!Array.isArray(target) || !valid(target,initial,rules)) throw new Error('La propuesta recibida no cumple las reglas y se descartó.');
+        const matrix=flow(orders),before=cost(initial,matrix),after=cost(target,matrix);
+        return planObject(initial,rules,target,before,after,[before,after],JSON.parse(JSON.stringify(solver)));
+      }
+      // The problem as plain JSON for external solvers: the same distances, co-occurrence flows and rules the engine applies.
+      function describe(initial, orders, rules) {
+        if(!valid(initial,initial,rules)) throw new Error('La distribución actual no cumple las reglas. Revisa los productos fijos y la zona de limpieza.');
+        const R=compileRules(rules),matrix=flow(orders);
+        return { version:1, products:n, slots:layout.slotCount, slotNames:layout.slots.map(slot=>slot.name), assignable:[...layout.assignable], reserved:[...layout.reserved],
+          distances:D.map(row=>Array.from(row)), flow:matrix, allowed:products.map(p=>layout.assignable.filter(slot=>R.fits(p.id,slot))),
+          pinned:[...R.pinned].sort((a,b)=>a-b), maxMoves:Number.isFinite(R.maxMoves) ? R.maxMoves : null, initial:[...initial], cost:cost(initial,matrix) };
       }
       function optimize(initial, orders, rules, options) { const solver=createSolver(initial,orders,rules,options);while(!solver.step().done);return solver.result(); }
 
@@ -263,7 +280,7 @@
       }
 
       return { spec:transfer, layout, products, groups:families, slotName:layout.slotName, distance:layout.distance, zones:rules => compileRules(rules).zones,
-        demo, flow, cost, deltaMove, deltaSwap, changed, valid, createSolver, optimize, solveAsync, makeTasks, confirmTask, parseCSV };
+        demo, flow, cost, deltaMove, deltaSwap, changed, valid, createSolver, optimize, solveAsync, planFrom, describe, makeTasks, confirmTask, parseCSV };
     }
 
     // Runs inside the worker: rebuilds the instance from its plain spec and streams progress, then the plan.

@@ -131,3 +131,15 @@ test('recocido: límite de tiempo, opciones inválidas y cancelación a mitad de
   const pending=E.solveAsync(assignment,orders,rules,{iterations:5000000,restarts:4,signal:controller.signal,onProgress:s=>{phases.add(s.phase);if(s.phase==='recocido')controller.abort();}});
   await assert.rejects(pending,{name:'AbortError'});assert(phases.has('recocido'));
 });
+
+test('problema exportado y planes externos: mismas reglas, índice recalculado y propuestas inválidas descartadas',()=>{
+  const {assignment,orders}=E.demo(),rules={maxMoves:6,pinned:[10],cleaningZone:true},problem=E.describe(assignment,orders,rules);
+  assert.equal(problem.products,30);assert.equal(problem.slots,32);assert.equal(problem.maxMoves,6);assert.deepEqual(problem.pinned,[10]);assert.equal(problem.cost,4454);
+  assert.equal(problem.distances[0][8],6);assert.deepEqual(problem.allowed[10],[24,25,26,27,28,29,30]);assert.equal(problem.allowed[0].includes(31),false);
+  assert.equal(JSON.parse(JSON.stringify(problem)).flow[0][1],problem.flow[0][1]);
+  const reference=E.optimize(assignment,orders,rules),plan=E.planFrom(assignment,orders,rules,reference.target,{id:'externo',label:'Prueba'});
+  assert.equal(plan.after,reference.after);assert.deepEqual(plan.tasks,reference.tasks);assert.equal(plan.solver.id,'externo');
+  const pinnedMoved=[...assignment];[pinnedMoved[10],pinnedMoved[11]]=[pinnedMoved[11],pinnedMoved[10]];
+  for(const bad of [null,[1,2],pinnedMoved,assignment.map(()=>0)])assert.throws(()=>E.planFrom(assignment,orders,rules,bad),/se descartó/);
+  assert.equal(E.describe(assignment,orders,{pinned:[]}).maxMoves,null);
+});
