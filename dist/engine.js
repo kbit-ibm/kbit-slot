@@ -12,6 +12,9 @@
     const now = () => typeof performance !== 'undefined' ? performance.now() : Date.now();
     const abortError = () => Object.assign(new Error('Cálculo cancelado.'), { name:'AbortError' });
     let workerURL = null;
+    // Simulated annealing: `restarts` independent chains of `iterations` steps, each from the greedy plan. Tuned on four order sets
+    // (mean gap 0.05 % to near-optimal references, ~150 ms). See docs/CONTRATO-MOTOR.md. iterations: 0 keeps only the greedy descent.
+    const SOLVER_DEFAULTS = Object.freeze({ seed:1, iterations:25000, restarts:32, timeLimit:5000, heat:1, chill:.01, revertRate:.05, movedRate:.15 });
     function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let n = Math.imul(seed ^ seed >>> 15, 1 | seed); n ^= n + Math.imul(n ^ n >>> 7, 61 | n); return ((n ^ n >>> 14) >>> 0) / 4294967296; }; }
     function shuffle(array, random) { for(let i=array.length-1;i>0;i--) { const j=Math.floor(random()*(i+1)); [array[i],array[j]]=[array[j],array[i]]; } return array; }
 
@@ -108,27 +111,71 @@
       }
 
       // Step-wise solver: the work runs in slices so a caller can report progress, cancel, or keep the page responsive.
+      // Phases: greedy descent (the historical method), annealing chains that each restart from the greedy plan, then a greedy polish of the best plan.
+      // With a fixed seed and iteration count the plan is reproducible; timeLimit (ms) is only a safety cap.
       function createSolver(initial, orders, rules, options = {}) {
         if(!valid(initial,initial,rules)) throw new Error('La distribución actual no cumple las reglas. Revisa los productos fijos y la zona de limpieza.');
-        const R=compileRules(rules),matrix=flow(orders),search=createSearch(initial,matrix,R,initial),history=[],before=search.cost,started=now();
-        const movable=products.map(p=>p.id).filter(id=>!R.pinned.has(id));
-        let phase='voraz',rounds=0,elapsed=0;
-        const status=()=>({ done:phase==='listo', phase, progress:phase==='listo' ? 1 : 0, before, best:search.cost, evaluations:search.evaluations, elapsed });
+        const settings={ ...SOLVER_DEFAULTS, ...options };
+        if(!isCount(settings.iterations,0) || !isCount(settings.restarts,1) || !Number.isInteger(settings.seed) || !(settings.timeLimit>0)) throw new Error('Las opciones del cálculo no son válidas: iterations, restarts y seed enteros, timeLimit positivo.');
+        const R=compileRules(rules),matrix=flow(orders),history=[],started=now(),random=rng(settings.seed),total=settings.iterations*settings.restarts;
+        const movable=products.map(p=>p.id).filter(id=>!R.pinned.has(id)),candidates=products.map(p=>layout.assignable.filter(slot=>R.fits(p.id,slot)));
+        let search=createSearch(initial,matrix,R,initial),phase='voraz',rounds=0,iteration=0,chain=0,chainEnd=0,elapsed=0,temperature=0,cooling=1,timeLimited=false,greedy=null;
+        const before=search.cost;let best=[...initial],bestCost=before,greedyCost=before;
+
+        function restart(from) { const evaluations=search.evaluations;search=createSearch(initial,matrix,R,from);search.evaluations=evaluations; }
+        function pickMoved() { let k=Math.floor(random()*search.moved);for(const a of movable)if(search.p[a]!==initial[a] && k--===0)return a;return movable[0]; }
+        // Random neighbour: put a product back in its original slot, move a relocated product, or move any product; swaps happen when the slot is taken.
+        function propose() {
+          const r=random(),relocated=search.moved>0;
+          if(relocated && r<settings.revertRate){ const a=pickMoved();return [a,initial[a]]; }
+          const a=relocated && r<settings.revertRate+settings.movedRate ? pickMoved() : movable[Math.floor(random()*movable.length)],slots=candidates[a];
+          return [a,slots[Math.floor(random()*slots.length)]];
+        }
+        function neighbour() { const [a,slot]=propose(),b=search.occupancy[slot];return slot!==search.p[a] && search.feasible(a,slot,b) ? [a,slot,b] : null; }
+        // Starting temperature: average worsening of random feasible moves around the greedy plan, so the schedule adapts to any order volume.
+        function calibrate() {
+          let sum=0,count=0;
+          for(let i=0;i<400;i++){ const move=neighbour();if(!move)continue;const delta=search.delta(...move);if(delta>0){sum+=delta;count++;} }
+          temperature=count ? sum/count*settings.heat : 1;cooling=Math.pow(settings.chill,1/Math.max(1,settings.iterations));
+        }
+        function anneal(stop) {
+          for(;iteration<stop;iteration++,temperature*=cooling) {
+            const move=neighbour();if(!move)continue;const delta=search.delta(...move);
+            if(delta<=0 || random()<Math.exp(-delta/temperature)){ search.apply(...move,delta);if(search.cost<bestCost-1e-9){ bestCost=search.cost;best=[...search.p];history.push(bestCost); } }
+          }
+        }
+        function status() {
+          const fraction=phase==='voraz' ? 0 : phase==='recocido' ? .04+.92*Math.min(1,Math.max(iteration/total,elapsed/settings.timeLimit)) : phase==='pulido' ? .97 : 1;
+          return { done:phase==='listo', phase, progress:fraction, before, best:Math.min(bestCost,search.cost), evaluations:search.evaluations, iteration, elapsed };
+        }
         return {
           step(budget = Infinity) {
             const deadline=now()+budget;
             do {
-              const last=history.length;descend(search,R,movable,1,history);rounds++;
-              if(history.length===last || rounds>=80) phase='listo';
-            } while(phase==='voraz' && now()<deadline);
-            elapsed=now()-started;return status();
+              if(phase==='voraz') {
+                const last=history.length;descend(search,R,movable,1,history);rounds++;
+                if(history.length===last || rounds>=80){ greedyCost=bestCost=search.cost;best=[...search.p];greedy=[...search.p];phase=settings.iterations>0 && movable.length ? 'recocido' : 'listo';if(phase==='recocido'){ chainEnd=settings.iterations;calibrate(); } }
+              } else if(phase==='recocido') {
+                anneal(Math.min(chainEnd,iteration+2048));
+                timeLimited=iteration<total && now()-started>=settings.timeLimit;
+                if(iteration>=chainEnd && ++chain<settings.restarts && !timeLimited){ restart(greedy);chainEnd+=settings.iterations;calibrate(); }
+                else if(iteration>=chainEnd || timeLimited){ restart(best);phase='pulido'; }
+              } else {
+                const last=history.length;descend(search,R,movable,1,history);
+                if(history.length===last)phase='listo';else{ bestCost=search.cost;best=[...search.p]; }
+              }
+              elapsed=now()-started;
+            } while(phase!=='listo' && now()<deadline);
+            return status();
           },
           result() {
             if(phase!=='listo') throw new Error('El cálculo todavía no terminó.');
             const target=[...search.p],after=cost(target,matrix);
             if(Math.abs(after-search.cost)>1e-6*Math.max(1,before) || !valid(target,initial,rules)) throw new Error('El cálculo incremental no coincide con el índice. Informa este caso.');
+            const annealed=settings.iterations>0 && movable.length>0;
             return {initial:[...initial],target,before,after,improvement:before ? (before-after)/before*100 : 0,moved:changed(initial,target),history,rules:JSON.parse(JSON.stringify(rules)),tasks:makeTasks(initial,target,rules),
-              solver:{ id:'voraz', label:'Búsqueda voraz', evaluations:search.evaluations, milliseconds:Math.round(elapsed) }};
+              solver:{ id:annealed ? 'voraz+recocido' : 'voraz', label:annealed ? 'Voraz + recocido simulado' : 'Búsqueda voraz', seed:settings.seed, iterations:iteration, evaluations:search.evaluations,
+                milliseconds:Math.round(elapsed), greedy:greedyCost, timeLimited }};
           }
         };
       }
@@ -230,7 +277,7 @@
       };
     }
 
-    return { ...createInstance(), createInstance, createLayout, DEFAULT_LAYOUT, CLEANING_ZONE };
+    return { ...createInstance(), createInstance, createLayout, DEFAULT_LAYOUT, CLEANING_ZONE, SOLVER_DEFAULTS };
   }
   const api = kbitEngine();
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.KbitEngine=api;

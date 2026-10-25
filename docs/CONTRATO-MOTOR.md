@@ -80,7 +80,7 @@ Un pasillo, nivel o posición que no existe en el plano produce un error con el 
 | `moved` | Productos cuya posición final cambia. |
 | `tasks` | Movimientos en orden: `{ id, product, from, to, temporary, done }`. Un ciclo usa una posición libre, primero las reservadas y dentro de la zona del producto si se puede. |
 | `rules`, `history` | Copia de las reglas y evolución del índice. |
-| `solver` | Método usado y su registro: `id`, `label`, `evaluations`, `milliseconds`. |
+| `solver` | Método y registro: `id` (`voraz+recocido` o `voraz`), `label`, `seed`, `iterations`, `evaluations`, `milliseconds`, `greedy` (índice de la búsqueda voraz) y `timeLimited`. |
 
 ## Cálculo
 
@@ -91,7 +91,26 @@ Un pasillo, nivel o posición que no existe en el plano produce un error con el 
 | `createSolver(inicial, pedidos, reglas, opciones)` | Solver por tramos: `step(ms)` devuelve el estado y `result()` el plan cuando `done` es verdadero. |
 | `deltaMove(distribución, flujos, producto, posición)` y `deltaSwap(distribución, flujos, a, b)` | Cambio del índice al mover a una posición vacía o intercambiar dos productos, en O(n). |
 
-El estado de progreso es `{ done, phase, progress (0–1), before, best, evaluations, elapsed }`. La interfaz no debe llamar a `optimize` en la página para cálculos que el usuario espera: usa `solveAsync`.
+El estado de progreso es `{ done, phase, progress (0–1), before, best, evaluations, iteration, elapsed }`. `phase` pasa por `voraz` → `recocido` → `pulido` → `listo`. La interfaz no debe llamar a `optimize` en la página para cálculos que el usuario espera: usa `solveAsync`.
+
+### Método y opciones
+
+1. **Búsqueda voraz** (el método histórico): aplica en cada ronda el mejor movimiento o intercambio que cumple las reglas, hasta que ninguno mejora.
+2. **Recocido simulado**: `restarts` cadenas independientes de `iterations` pasos, cada una desde el plan voraz. Los vecinos son: devolver un producto a su posición original, mover un producto ya reubicado o mover cualquier producto (intercambio si la posición está ocupada). La temperatura inicial se calibra con el empeoramiento medio de vecinos al azar, así que se adapta al volumen de pedidos.
+3. **Pulido**: búsqueda voraz desde el mejor plan encontrado.
+
+Todos los pasos respetan las reglas; el plan final se recalcula completo y se valida antes de devolverlo.
+
+| Opción | Por defecto | Uso |
+|---|---|---|
+| `seed` | `1` | Semilla. Misma semilla e iteraciones ⇒ mismo plan, en la página y en el Worker. |
+| `iterations` | `25000` | Pasos por cadena. `0` = solo búsqueda voraz (resultados del motor anterior). |
+| `restarts` | `32` | Número de cadenas. |
+| `timeLimit` | `5000` | Tope de seguridad en ms; si se alcanza, `solver.timeLimited` es verdadero y el plan sigue siendo válido. |
+| `heat`, `chill` | `1`, `0.01` | Temperatura inicial (× empeoramiento medio) y temperatura final relativa. |
+| `revertRate`, `movedRate` | `0.05`, `0.15` | Proporción de vecinos que devuelven un producto o mueven uno ya reubicado. |
+
+Calibración (4 conjuntos de pedidos, 4 límites de movimientos, 3 semillas): brecha media de 0,05 % frente a referencias de corridas largas, en ~150 ms. En casos que no se usaron para calibrar, con 1 y 2 niveles: 0,13 % y 0,38 % (búsqueda voraz: 3 % y 11 %), nunca peor que la búsqueda voraz.
 
 ## Qué cambiar en la interfaz para otro plano
 

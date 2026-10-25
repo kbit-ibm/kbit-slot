@@ -52,7 +52,7 @@ Abre http://127.0.0.1:4173. La persistencia al abrir archivos locales depende de
 
 1. **Mi almacén:** 30 productos, 32 posiciones y 180 pedidos sintéticos precargados. Selecciona una ubicación para inspeccionar el producto.
 2. **Preparar turno:** limita a 2–12 productos reubicados, fija productos y conserva la zona de limpieza en el pasillo D.
-3. **Generar plan:** calcula una propuesta, compara la distribución actual con la propuesta y revisa los productos reubicados.
+3. **Generar plan:** calcula una propuesta (con barra de avance y opción de cancelar), compara la distribución actual con la propuesta y revisa los productos reubicados.
 4. **Tareas:** confirma movimientos en secuencia. Los destinos están libres y D08 actúa como reserva para intercambios temporales.
 5. **Historial:** el turno completado se registra. Recarga para verificar que tu estado se conserva.
 
@@ -61,7 +61,7 @@ En Ayuda puedes reiniciar la demostración. La importación CSV acepta `order_id
 ## Alcance
 
 - Prototipo funcional de una aplicación web, sin servidor de negocio. El archivo independiente y la carpeta `dist/` ya incluyen el motor visual empaquetado; no requieren instalar paquetes para usarlos.
-- Los cálculos son reales sobre los pedidos activos. El motor usa una búsqueda local clásica independiente, intercambios y movimientos a posiciones libres. Respeta reglas y selecciona mejoras; no garantiza óptimo global.
+- Los cálculos son reales sobre los pedidos activos. El motor clásico parte de una búsqueda voraz (intercambios y movimientos a posiciones libres), la refina con 32 cadenas de recocido simulado y pule el mejor resultado. Evalúa cada movimiento de forma incremental, corre en un Web Worker para no congelar la página y con la misma semilla da el mismo plan. En pruebas con pedidos sintéticos queda en promedio a menos de 0,4 % de referencias casi óptimas (la búsqueda voraz sola, entre 3 % y 11 %), en unos 160 ms. No garantiza el óptimo global.
 - El índice suma, una vez por par, la frecuencia de aparición conjunta × distancia por pasillos. Los cruces entre pasillos se realizan por los extremos. Las distancias se expresan en unidades del plano, sin calibración a metros.
 - El límite cuenta SKUs cuya ubicación final cambia; una reubicación puede necesitar pasos temporales adicionales.
 - D08 queda reservado para movimientos temporales. Los productos de limpieza se mantienen en D cuando la regla está activa.

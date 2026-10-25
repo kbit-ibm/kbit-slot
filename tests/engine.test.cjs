@@ -94,7 +94,7 @@ test('costo incremental: mover e intercambiar coinciden con recalcular el índic
 
 test('la búsqueda voraz reproduce los resultados del motor anterior',()=>{
   const {assignment,orders}=E.demo();
-  for(const [maxMoves,after] of [[0,4454],[2,4100],[4,3780],[6,3482],[8,3256],[12,3059],[30,2722]])assert.equal(E.optimize(assignment,orders,{maxMoves,pinned:[10],cleaningZone:true}).after,after);
+  for(const [maxMoves,after] of [[0,4454],[2,4100],[4,3780],[6,3482],[8,3256],[12,3059],[30,2722]]){const plan=E.optimize(assignment,orders,{maxMoves,pinned:[10],cleaningZone:true},{iterations:0});assert.equal(plan.after,after);assert.equal(plan.solver.id,'voraz');}
 });
 
 test('cálculo por tramos y asíncrono: mismo plan que optimize, con progreso y cancelación',async()=>{
@@ -107,4 +107,27 @@ test('cálculo por tramos y asíncrono: mismo plan que optimize, con progreso y 
   await assert.rejects(E.solveAsync(assignment,orders,rules,{signal:controller.signal}),{name:'AbortError'});
   await assert.rejects(E.solveAsync(assignment,orders,{maxMoves:4,pinned:[],zones:[{families:[0],aisles:['A']}]}),/no cumple las reglas/);
   assert.throws(()=>E.createSolver(assignment,orders,rules).result(),/no terminó/);
+});
+
+test('recocido: nunca peor que la búsqueda voraz, cumple las reglas y es reproducible con la misma semilla',()=>{
+  const {assignment,orders}=E.demo();
+  for(const maxMoves of [2,4,8,12,30])for(const cleaningZone of [true,false]){
+    const rules={maxMoves,pinned:[10],cleaningZone},plan=E.optimize(assignment,orders,rules);
+    assert(plan.after<=plan.solver.greedy);assert.equal(plan.solver.greedy,E.optimize(assignment,orders,rules,{iterations:0}).after);
+    assert.equal(E.valid(plan.target,assignment,rules),true);assert(plan.moved<=maxMoves);assert.equal(plan.after,E.cost(plan.target,E.flow(orders)));
+    if(maxMoves>=8)assert(plan.after<plan.solver.greedy,'debe mejorar a la búsqueda voraz con '+maxMoves+' movimientos');
+    let current=[...assignment];for(const task of plan.tasks)current=E.confirmTask(current,task);assert.deepEqual(current,plan.target);
+  }
+  const rules={maxMoves:12,pinned:[10],cleaningZone:true},a=E.optimize(assignment,orders,rules,{seed:7}),b=E.optimize(assignment,orders,rules,{seed:7});
+  assert.deepEqual(a.target,b.target);assert.equal(a.solver.label,'Voraz + recocido simulado');assert.equal(a.solver.iterations,E.SOLVER_DEFAULTS.iterations*E.SOLVER_DEFAULTS.restarts);
+});
+
+test('recocido: límite de tiempo, opciones inválidas y cancelación a mitad de cálculo',async()=>{
+  const {assignment,orders}=E.demo(),rules={maxMoves:12,pinned:[],cleaningZone:true};
+  const capped=E.optimize(assignment,orders,rules,{iterations:5000000,restarts:4,timeLimit:30});
+  assert.equal(capped.solver.timeLimited,true);assert(capped.solver.iterations<20000000);assert.equal(E.valid(capped.target,assignment,rules),true);assert(capped.after<=capped.solver.greedy);
+  assert.throws(()=>E.optimize(assignment,orders,rules,{iterations:-1}),/opciones del cálculo/);assert.throws(()=>E.optimize(assignment,orders,rules,{restarts:0}),/opciones del cálculo/);
+  const controller=new AbortController();let phases=new Set();
+  const pending=E.solveAsync(assignment,orders,rules,{iterations:5000000,restarts:4,signal:controller.signal,onProgress:s=>{phases.add(s.phase);if(s.phase==='recocido')controller.abort();}});
+  await assert.rejects(pending,{name:'AbortError'});assert(phases.has('recocido'));
 });
