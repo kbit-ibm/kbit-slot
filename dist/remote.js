@@ -36,5 +36,5 @@
       }
     }catch(error){if(error.name==='AbortError')cancel();throw error;}
   }
-  window.KbitRemote={connect,solve,status:()=>health};
+  window.KbitRemote={connect,solve,status:()=>health,checked:()=>checkedAt>0};
 })();

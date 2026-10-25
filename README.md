@@ -80,7 +80,7 @@ python -m venv .venv
 .venv/bin/python -m server
 ```
 
-Abre http://127.0.0.1:8000. El archivo independiente y `npm start` también se conectan a ese servicio si está activo. El híbrido muestra su resultado junto a la referencia clásica: a esta escala no supera al recocido del navegador.
+Abre http://127.0.0.1:8000. Desde el archivo independiente, pulsa «Conectar» bajo «Motor de cálculo» en Preparar turno. El híbrido muestra su resultado junto a la referencia clásica: a esta escala no supera al recocido del navegador.
 
 ## Estructura
 

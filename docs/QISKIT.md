@@ -13,7 +13,7 @@ python -m venv .venv
 .venv/bin/python -m unittest discover -s server/tests -t .  # pruebas del servicio
 ```
 
-Abre `http://127.0.0.1:8000`: el servicio también sirve la app. Si abres `dist/Kbit-Slot.html` como archivo o usas `npm start`, la app se conecta a `http://127.0.0.1:8000` por su cuenta.
+Abre `http://127.0.0.1:8000`: el servicio también sirve la app y se conecta sola. Si abres `dist/Kbit-Slot.html` como archivo, pulsa «Conectar» bajo «Motor de cálculo» (no consulta el servicio sin que lo pidas, para no llenar la consola de errores cuando no está activo). Con `npm start`, la app lo busca en `http://127.0.0.1:8000`.
 
 | Variable | Por defecto | Uso |
 |---|---|---|
