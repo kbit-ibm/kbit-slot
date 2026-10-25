@@ -20,9 +20,10 @@
   }
   function catalog(count){const per=count/Base.groups.length;return Array.from({length:count},(_,id)=>{const family=Math.floor(id/per);return {id,code:'SKU-'+String(id+1).padStart(4,'0'),name:Base.groups[family]+' '+pad(id%per+1),family,category:Base.groups[family]};});}
   function fingerprint(value){const c=M.normalize(value);delete c.name;let h=2166136261;for(const ch of JSON.stringify(c))h=Math.imul(h^ch.charCodeAt(0),16777619);return 'physical-v1-'+(h>>>0).toString(16);}
-  function create(value,{mode='muestra'}={}){
+  function create(value,{mode='muestra',products:importedProducts,groups:importedGroups}={}){
     const config=M.normalize(value),stats=M.summary(config),sectors=M.sectors(config),complete=mode==='completa';
-    if(complete){const check=supportsComplete(config);if(!check.ok)throw new Error(check.reason);}
+    if(complete){const check=supportsComplete(config);if(stats.locations>COMPLETE_LIMIT||!importedProducts&&!check.ok)throw new Error(check.reason);}
+    if(importedProducts&&(!complete||importedProducts.length>=stats.locations))throw new Error('El diseño guardado tiene '+stats.locations+' ubicaciones; necesitas al menos '+(importedProducts.length+1)+' para estos productos y una reserva temporal. Amplía y guarda tu diseño.');
     if(stats.locations<2)throw new Error('Para reubicar productos necesitas al menos dos ubicaciones, una libre.');
     const selected=[],seen=new Set(),ordered=[];
     for(let i=0;i<Math.min(8,sectors.length);i++)ordered.push(sectors[Math.floor(i*sectors.length/Math.min(8,sectors.length))]);
@@ -112,7 +113,7 @@
     // Shortest paths are computed on demand: the sample needs them all for its matrix, the complete mode only for routes.
     const searches=new Map(),search=node=>{if(!searches.has(node))searches.set(node,shortest(node));return searches.get(node);};
     const distances=complete?null:slots.map((a,i)=>slots.map((b,j)=>{if(i===j)return 0;const d=search(a.node).dist[b.node];if(!Number.isFinite(d))throw new Error('No se pudo conectar la circulación de este diseño.');return d+distance(a,a.access)+distance(b,b.access)+Math.abs(a.y-b.y);}));
-    const count=complete?completeProducts(config):Math.min(Base.products.length,slots.length-1),products=complete?catalog(count):Base.products.slice(0,count),reserved=slots.at(-1).name;
+    const count=importedProducts?.length??(complete?completeProducts(config):Math.min(Base.products.length,slots.length-1)),products=importedProducts||(complete?catalog(count):Base.products.slice(0,count)),reserved=slots.at(-1).name;
     // Complete mode: the same metric in closed form. In a Parallel design the graph distance between two locations is the
     // corridor offset plus the best horizontal line (back, cross aisles, front), plus both shelf accesses and the height.
     function corridors(){
@@ -130,7 +131,7 @@
         slots:slots.map(s=>({name:s.name,aisle:aisleIds.indexOf(s.rack.aisle),level:s.level,node:s.node,offset:distance(s,s.access)})),reserved:[reserved],
         ...(entrance&&nodeByKey.has(Math.round(entrance.x*1e6)+':'+Math.round(entrance.z*1e6))?{depot:nodeByKey.get(Math.round(entrance.x*1e6)+':'+Math.round(entrance.z*1e6))}:{})};
     }
-    const engine=Base.createInstance({layout:complete?(config.geometry==='parallel'?corridors():network()):{kind:'physical',slots:slots.map(({rack,access,node,...s})=>s),distances,reserved:[reserved]},products,groups:Base.groups});
+    const engine=Base.createInstance({layout:complete?(config.geometry==='parallel'?corridors():network()):{kind:'physical',slots:slots.map(({rack,access,node,...s})=>s),distances,reserved:[reserved]},products,groups:importedGroups||Base.groups});
     const key=fingerprint(config)+(complete?'-completa':selected.length>spread?'-muestra'+selected.length:'');
     function route(from,to){
       const a=slots[from],b=slots[to],path=[],found=search(a.node);let v=b.node;while(v!==-1){path.push(nodes[v]);if(v===a.node)break;v=found.prev[v];}path.reverse();

@@ -32,7 +32,8 @@ def model(problem):
     slots = {i: [int(k) for k in np.flatnonzero(problem.allowed[i]) if int(k) not in taken] for i in movable}
     if len(movable) > MAX_MOVABLE:
         raise TooLarge(f'El cálculo exacto admite hasta {MAX_MOVABLE} productos movibles; este problema tiene {len(movable)}. '
-                       'Fija más productos o usa el recocido.')
+                       'El máximo de reubicaciones limita el resultado, pero no fija productos. '
+                       f'Fija al menos {len(movable) - MAX_MOVABLE} productos adicionales o usa «Seleccionar productos para MILP».')
     pairs = [(i, j) for a, i in enumerate(movable) for j in movable[a + 1:] if F[i, j] > 0]
     size = sum(len(slots[i]) for i in movable) + sum(len(slots[i]) * len(slots[j]) for i, j in pairs)
     if size > MAX_VARIABLES:

@@ -27,6 +27,37 @@
     if (!Array.isArray(data.initial) || !engine.valid(data.initial, data.initial, rules)) fail('La distribución inicial no cumple las ubicaciones, reservas o zonas.');
     return { engine, assignment: [...data.initial], orders: data.orders, rules };
   }
-  if (typeof module !== 'undefined' && module.exports) module.exports = { validate };
-  else root.KbitDataset = { validate };
+  function bindToDesign(checked,config,Operation,sourcePositions) {
+    const source=checked.engine,target=Operation.create(config,{mode:'completa',products:source.products,groups:source.groups});
+    const spec=source.layout.spec;
+    const coordinates=sourcePositions||source.layout.slots.map(s=>({
+      x:s.x??spec.corridors?.[s.aisle]??s.aisle*(spec.aisleSpacing||1),
+      z:s.z??s.bay,y:s.y??s.level*(spec.levelCost||1)
+    }));
+    function normalized(points){
+      const axes=['x','y','z'],bounds=axes.map(k=>[Math.min(...points.map(p=>p[k])),Math.max(...points.map(p=>p[k]))]);
+      return points.map(p=>axes.map((k,i)=>(p[k]-bounds[i][0])/(bounds[i][1]-bounds[i][0]||1)));
+    }
+    const from=normalized(coordinates),to=normalized(target.slots),mapping=new Map(),free=new Set(target.engine.layout.assignable);
+    source.layout.reserved.forEach(s=>mapping.set(s,target.engine.layout.reserved[0]));
+    // Occupied locations take priority; then map unused source positions as space permits.
+    const order=[...checked.assignment,...source.layout.assignable.filter(s=>!checked.assignment.includes(s))];
+    for(const s of order){
+      if(!free.size)break;
+      let best=-1,cost=Infinity;
+      for(const t of free){const d=from[s].reduce((sum,v,k)=>sum+(v-to[t][k])**2,0);if(d<cost){best=t;cost=d;}}
+      mapping.set(s,best);free.delete(best);
+    }
+    const assignment=checked.assignment.map(s=>mapping.get(s));
+    const zones=source.zones(checked.rules).map(zone=>{
+      const names=source.layout.slots.filter(s=>(!zone.aisles||zone.aisles.includes(spec.aisles?.[s.aisle]||s.aisleName))&&(!zone.levels||zone.levels.includes(s.level+1))&&(!zone.slots||zone.slots.includes(s.name)))
+        .map(s=>mapping.get(s.index)).filter(t=>t!==undefined&&!target.engine.layout.reserved.includes(t)).map(t=>target.engine.slotName(t));
+      return {id:zone.id,label:zone.label,families:zone.families,products:zone.products,slots:names};
+    });
+    const rules={...checked.rules,cleaningZone:false,zones};
+    if(!target.engine.valid(assignment,assignment,rules))throw new Error('No se pudieron aplicar las reglas a las ubicaciones del diseño. Revisa sus zonas.');
+    return {engine:target.engine,operation:target,assignment,orders:checked.orders,rules};
+  }
+  if (typeof module !== 'undefined' && module.exports) module.exports = { validate,bindToDesign };
+  else root.KbitDataset = { validate,bindToDesign };
 })(typeof window !== 'undefined' ? window : globalThis);

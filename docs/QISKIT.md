@@ -87,6 +87,20 @@ Abre `http://127.0.0.1:8000`: el servicio también sirve la app y se conecta sol
 
 ## Cálculo exacto (punto 4)
 
+En **Preparar turno → Servidor · exacto (MILP)** usa **Seleccionar productos
+para MILP**. El límite «Productos a reubicar, máximo» cuenta cambios finales,
+pero no fija el resto del catálogo: con 1.000 productos y uno fijo, el solver
+todavía tiene 999 candidatos aunque el máximo de reubicaciones sea 14.
+
+El selector permite elegir hasta 14 candidatos (manualmente o por presencia en
+pedidos) y fija el resto al aplicar. Por defecto acota los destinos a las
+posiciones actuales de esos candidatos y una posición libre cercana permitida
+por cada uno. Las zonas originales siguen vigentes. Se puede desmarcar esa
+restricción para usar todas las posiciones permitidas, sujeto al límite de
+120.000 variables. El óptimo se refiere a los candidatos y destinos elegidos;
+no demuestra el óptimo de reubicar cualesquiera 14 entre los 1.000 productos.
+
+
 `server/exact.py` resuelve el problema completo, con las reglas, como programa lineal entero mixto con HiGHS (`scipy.optimize.milp`):
 
 - `x[i, k] = 1` pone el producto movible `i` en la posición `k` (solo las que su zona permite y ningún fijo ocupa). Cada producto en una posición, cada posición con un producto como mucho.

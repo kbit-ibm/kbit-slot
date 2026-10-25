@@ -44,7 +44,8 @@ test('invalid imports reject unknown products, duplicate codes and occupied rese
 
 test('page imports the complete catalogue and restores it after reload',async()=>{
  const vm=require('node:vm');
- const storage=new Map();
+ const storage=new Map();let savedDesign=null;
+ const M=require('../dist/layout-model.js'),O=require('../dist/operation-model.js');
  const source=fs.readFileSync(path.join(__dirname,'../dist/app.js'),'utf8');
  function boot(){
   const elements=new Map(),events={};
@@ -58,9 +59,10 @@ test('page imports the complete catalogue and restores it after reload',async()=
    addEventListener(name,fn){(events[name]??=[]).push(fn);}};
   const localStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
   let latestVisual;
-  const window={KbitEngine:E,KbitDataset:{validate},KbitDesigner:{saved:()=>null},
+  const window={KbitEngine:E,KbitDataset:require('../dist/dataset.js'),KbitExactSelection:require('../dist/exact-selection.js'),KbitOperation:O,KbitLayout:M,KbitDesigner:{saved:()=>savedDesign,plan:()=>'<svg></svg>'},
    KbitVisual:{panel(props){latestVisual=props;return props.flat;},mount(){return {destroy(){}};}},
    addEventListener(){},scrollTo(){}};
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../dist/operation-ui.js'),'utf8'),{window});
   vm.runInNewContext(source,{window,document,localStorage,location:{hash:'#almacen'},Intl,JSON,console,
    setTimeout:()=>1,clearTimeout(){},matchMedia:()=>({matches:false,addEventListener(){}})});
   return {el,visual:()=>latestVisual,click(action){for(const fn of events.click)fn({target:{closest:()=>({dataset:{action}})}});}};
@@ -81,6 +83,25 @@ test('page imports the complete catalogue and restores it after reload',async()=
  assert.match(reloaded.el('workspace').innerHTML,/almacen-1000.json/);
  assert.match(reloaded.el('workspace').innerHTML,/D280/);
  assert.equal(reloaded.visual().imported,true);
+ savedDesign=M.fromPreset('flying-v');
+ const migrated=boot();
+ assert.equal(migrated.visual().physical.config.geometry,'flying-v');
+ assert.equal(migrated.visual().engine.layout.spec.kind,'network');
+ const bound=JSON.parse(storage.get('kbit-slot-imported-operation-v1'));
+ assert.equal(bound.dataset.design.geometry,'flying-v');
+ assert.equal(bound.orders.length,10000);
+ const restored=boot();
+ assert.equal(restored.visual().physical.config.geometry,'flying-v');
+ assert.deepEqual(JSON.parse(storage.get('kbit-slot-imported-operation-v1')).assignment,bound.assignment);
+ savedDesign=M.fromPreset('chevron');
+ const changed=boot();
+ assert.equal(changed.visual().physical.config.geometry,'chevron');
+ assert.equal(changed.visual().engine.products.length,1000);
+ savedDesign={...M.fromPreset('parallel'),aisles:1,bays:2,levels:1,positions:1};
+ const tooSmall=boot();
+ assert.match(tooSmall.el('workspace').innerHTML,/necesitas al menos 1001/);
+ assert.equal(JSON.parse(storage.get('kbit-slot-imported-operation-v1')).dataset.design.geometry,'chevron');
+
 });
 
 test('imported 3D coordinates are unique and routes match engine distances',async()=>{
@@ -106,4 +127,27 @@ test('imported visual panel provides 3D, plan and sector controls for all 1000 p
  assert.match(html,/data-vaction="3d"/);assert.match(html,/data-vaction="2d"/);
  assert.match(html,/id="scene-sector"/);assert.match(html,/Sector 12/);
  assert.match(html,/SKU-1000/);assert.match(html,/Plano de prueba/);
+});
+
+test('1000 imported products retain every saved geometry and its physical metric',()=>{
+ const M=require('../dist/layout-model.js'),O=require('../dist/operation-model.js'),D=require('../dist/dataset.js');
+ const data=require('../data/almacen-1000/request.json');
+ for(const geometry of ['parallel','flying-v','fishbone','chevron']){
+  const config=M.fromPreset(geometry),original=structuredClone(config);
+  const bound=D.bindToDesign(D.validate(data,E),config,O);
+  assert.deepEqual(config,original);
+  assert.equal(O.fingerprint(bound.operation.config),O.fingerprint(original));
+  assert.equal(bound.engine.layout.slotCount,M.summary(config).locations);
+  assert.deepEqual(bound.engine.products,data.spec.products);
+  assert.equal(bound.engine.valid(bound.assignment,bound.assignment,bound.rules),true);
+  const id=999,slot=bound.assignment[id],location=bound.operation.slots[slot];
+  assert.equal(bound.engine.slotName(slot),location.name);
+  assert.equal(M.slotCode(config,location.rack,location.level,location.position),location.name);
+  assert.ok(M.racks(config,location.sector).some(r=>r.x===location.rack.x&&r.z===location.rack.z&&r.rotation===location.rack.rotation));
+  const reconstructed=E.createInstance(bound.engine.spec);
+  assert.equal(reconstructed.distance(bound.assignment[0],bound.assignment[999]),bound.engine.distance(bound.assignment[0],bound.assignment[999]));
+  const path=bound.operation.route(bound.assignment[0],slot);
+  assert.equal(path[0].x,bound.operation.slots[bound.assignment[0]].x);
+  assert.equal(path.at(-1).z,location.z);
+ }
 });

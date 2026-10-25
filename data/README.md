@@ -18,7 +18,17 @@ extraídos de una base externa. No representan ventas ni inventario real.
 4. La página muestra el catálogo importado y el plano de sus ubicaciones.
    En **Preparar turno** elige el motor y genera el plan.
 
-La operación importada también tiene vista **3D / Plano**. Con más de 24
+Si tienes un diseño guardado, la importación conserva exactamente su geometría,
+dimensiones, estantes, niveles y huecos. Los productos se asignan a sus direcciones
+reales; las restricciones de ubicación del archivo se traducen a esas direcciones.
+La vista 2D, la escena 3D, las rutas y los cálculos usan ese mismo diseño. Las
+operaciones importadas previamente se vinculan al diseño guardado al recargar;
+los planes anteriores se invalidan al cambiar de geometría. La vinculación no
+amplía el edificio: si no caben todos los productos más una reserva, se pide
+ajustar el diseño, conservando los datos anteriores.
+
+Sin diseño guardado se usa el plano rectangular incluido en el archivo.
+Este plano también tiene vista **3D / Plano**. Con más de 24
 posiciones por pasillo, la vista 3D empieza en el primer sector; el selector
 **Sector** permite recorrerlos y **Ver almacén completo** encuadra todo el plano.
 Buscar un producto enfoca su sector. Demanda, conexiones y reproducción usan
@@ -27,7 +37,7 @@ en lotes para evitar crear una escena separada por cada SKU.
 
 La importación completa reemplaza el catálogo, la distribución, los pedidos y las
 reglas de la operación activa. Se valida antes de aplicarse y se conserva en el
-navegador. El diseño del diseñador se conserva aparte. Usa Ayuda → Reiniciar
+navegador, vinculada a su diseño. Usa Ayuda → Reiniciar
 demostración para salir de la operación importada.
 
 El CSV habitual **solo reemplaza pedidos del catálogo activo**. No crea productos.
