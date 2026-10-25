@@ -1,4 +1,21 @@
-# Verificación del diseñador de almacenes
+# Verificación de las cuatro geometrías
+
+- `npm test`: 32 pruebas aprobadas (19 del motor existente y 13 del diseñador).
+- Paralelo, Flying-V, Fishbone y Chevron tienen geometría física diferenciada en SVG y Three.js, con los mismos postes, bandejas, cajas, controles y selección.
+- Cambiar de tipo conservó cantidades, niveles, huecos y medidas; la V y el ángulo solo aparecieron en los tipos correspondientes.
+- Flying-V con 6 pasillos, 12 módulos máximos, 4 niveles y 3 huecos: 112 estantes / 1.344 ubicaciones. La V quedó libre de estantes.
+- Fishbone con 6 filas por zona: selección del sector inferior izquierdo S09 y del estante horizontal P13-I-E01, con sus 12 ubicaciones y direcciones por nivel.
+- Chevron: selección de P01-I-E01 y cambio a 60 grados; guardado, aparición en Mi almacén y recarga conservaron la geometría y el ángulo.
+- Aumentar a 5 niveles y cambiar a tema oscuro conservó el borrador de 2.880 ubicaciones. Restaurar recuperó el diseño guardado.
+- Móvil: 375 px de contenido y 375 px disponibles, sin desbordamiento horizontal; controles específicos visibles y utilizables.
+- HTML independiente por HTTP: cambio de Fishbone a Chevron, plano 2D y selección directa de P01-I-E01 verificados, sin errores de JavaScript.
+- No se encontraron IDs duplicados. Se actualizó la captura de `docs/designer.png` con Fishbone en 3D.
+- Pruebas del modelo: cobertura de sectores, direcciones únicas, capacidad real, colisiones entre módulos, separación de circulación, recorte de tramos, ángulos extremos, filas en un solo lado y configuraciones máximas. El detalle mantiene un máximo de 80 módulos por sector.
+- Los diseños anteriores se migran a Paralelo conservando medidas, capacidad y direcciones. No se modifica el valor guardado hasta pulsar Guardar diseño.
+
+Las formas son modelos paramétricos ilustrativos. No se ha conectado el diseñador al motor ni se ha demostrado ahorro de recorridos. Las pruebas existentes del motor remoto/clásico se conservaron; no se ejecutó un backend cuántico durante esta tarea visual.
+
+# Verificación previa del diseñador de almacenes
 
 - `npm test`: 16 pruebas aprobadas (9 del motor existente y 7 del modelo de almacén).
 - `npm run build`, `npm run export`, comprobación de sintaxis y `git diff --check` completados.

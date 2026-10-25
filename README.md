@@ -10,14 +10,18 @@ Prototipo personal de software para explorar un almacén en 3D, simular reubicac
 
 ![Diseñador de almacenes con detalle de un sector](docs/designer.png)
 
-- Cuatro bases: Compacto (96 ubicaciones), Distribución (1.728), Fulfillment (21.600) y Estantería alta (5.120).
-- Configura pasillos, estantes por lado, niveles, huecos y uno o ambos lados. Ajusta ancho de pasillos, ancho y fondo de estantes, altura entre niveles y frecuencia de cruces.
+- Cuatro geometrías: **Paralelo, Flying-V, Fishbone y Chevron**. Cambiar de tipo conserva las cantidades, niveles, huecos y medidas del borrador.
+- Configura pasillos o filas por zona/ala, estantes por lado, niveles, huecos y uno o ambos lados. Ajusta ancho de pasillos, ancho y fondo de estantes, altura entre niveles y separación de accesos.
+- Flying-V y Fishbone añaden **Profundidad de la V**; Chevron añade **Ángulo de las filas**. El edificio y su superficie se ajustan a la geometría.
+- La capacidad cuenta los módulos que realmente caben. Se dejan libres las vías diagonales y los huecos de acceso; los estantes junto a los bordes de Fishbone pueden ser más cortos.
 - La capacidad, superficie estimada y altura se actualizan junto al modelo 3D. Cambia a plano 2D, vista superior o perspectiva; gira, acerca y selecciona estantes.
 - Por encima de 400 estantes se muestra una vista por sectores. Entra en uno desde el modelo o el selector para ver hasta 80 estantes detallados.
 - Cada ubicación tiene una dirección estable: `P09-I-E11-N06-U03` identifica pasillo, lado, estante, nivel y hueco.
 - **Guardar diseño** lo aplica a Mi almacén y lo conserva en este navegador. **Volver al diseño guardado** descarta el borrador; cambiar de página o de tema conserva el borrador válido durante la sesión.
 
-El modelo representa una sola planta. Las cajas ilustran el espacio: no representan inventario ni ocupación real. La superficie incluye márgenes y una zona de empaque ilustrativa; no es un plano constructivo ni una validación normativa. El límite del configurador es 64 pasillos × 100 estantes por lado × 2 lados × 12 niveles × 6 huecos = 921.600 ubicaciones teóricas. Esto valida la representación compacta, no el rendimiento de un WMS u optimizador industrial.
+El modelo representa una sola planta. Las cajas ilustran el espacio: no representan inventario ni ocupación real. La superficie incluye márgenes y una zona de empaque ilustrativa; no es un plano constructivo ni una validación normativa. Se admiten hasta 64 pasillos o filas por zona/ala, 100 módulos por fila, 12 niveles y 6 huecos por nivel. El total depende de la geometría y sus accesos. Esto valida la representación visual, no el rendimiento de un WMS u optimizador industrial.
+
+Los diseños anteriores (Compacto, Distribución, Fulfillment y Estantería alta) se abren automáticamente como **Paralelo** con sus medidas y direcciones originales. Ver [modelo de las cuatro geometrías](docs/warehouse-layouts.md).
 
 El diseño personalizado se guarda separado de la operación de ejemplo de 30 SKUs / 32 posiciones. Todavía no alimenta el motor de reubicación; esta distinción aparece en la interfaz.
 
