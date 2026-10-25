@@ -49,8 +49,8 @@
   }
   function map(assignment=state.assignment,highlight=[],tabs=false){
     const flat=map2D(assignment,highlight,tabs);
-    if(!window.KbitVisual||state.dataset)return flat;
-    visualProps={engine:E,physical:operation,assignment:[...assignment],orders:state.orders,pinned:state.rules.pinned,highlight,tabs,mode:mapMode,flat};
+    if(!window.KbitVisual)return flat;
+    visualProps={engine:E,physical:operation,imported:!!state.dataset,assignment:[...assignment],orders:state.orders,pinned:state.rules.pinned,highlight,tabs,mode:mapMode,flat};
     return window.KbitVisual.panel(visualProps);
   }
   async function simulationPlan(){
@@ -63,7 +63,7 @@
   }
   // The 3D "Ver demo" needs a plan for the current rules: compute it in the worker as soon as the view appears.
   function previewKey(){return JSON.stringify([activeStorageKey,state.assignment,state.rules,ordersVersion]);}
-  function warmPreview(){if(state.plan)return;const key=previewKey();if(preview.key===key)return;preview={key,plan:null};E.solveAsync(state.assignment,state.orders,state.rules).then(plan=>{if(preview.key===key)preview.plan=plan;}).catch(()=>{});}
+  function warmPreview(){if(state.plan||state.dataset)return;const key=previewKey();if(preview.key===key)return;preview={key,plan:null};E.solveAsync(state.assignment,state.orders,state.rules).then(plan=>{if(preview.key===key)preview.plan=plan;}).catch(()=>{});}
   function dataPanel(){if(operation)return window.KbitOperationUI.dataPanel(context());return '<section class="panel details-panel"><h3>Datos de tu operación</h3><div class="detail-row"><span>Catálogo</span><strong>'+number(E.products.length)+' productos</strong></div><div class="detail-row"><span>Distribución</span><strong>'+E.layout.spec.aisles.length+' pasillos / '+number(E.layout.slotCount)+' ubicaciones</strong></div><div class="detail-row"><span>Zona de limpieza</span><strong>'+(state.rules.zones?.length?state.rules.zones.length+' zonas del archivo':state.rules.cleaningZone?'Pasillo D':'Sin restricción')+'</strong></div><div class="detail-row"><span>Productos fijos</span><strong>'+state.rules.pinned.length+' protegidos</strong></div><div class="file-chip">'+icon('file')+'<div>'+escape(state.source)+'<small>'+state.orders.length+' pedidos · '+(state.synthetic?'datos sintéticos':'importados en este navegador')+'</small></div></div></section>';}
   function introSteps(){return '<div class="workflow-strip"><div class="workflow-step"><span class="workflow-number">1</span><div><strong>Conecta tus pedidos</strong><p>Empieza con el ejemplo o carga un CSV.</p></div></div><div class="workflow-step"><span class="workflow-number">2</span><div><strong>Define lo que puede cambiar</strong><p>Limita las reubicaciones y fija productos.</p></div></div><div class="workflow-step"><span class="workflow-number">3</span><div><strong>Ejecuta un plan claro</strong><p>Confirma cada movimiento, paso a paso.</p></div></div></div>';}
   function overview(){

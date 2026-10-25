@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import './layout3d.js';
 import './operation3d.js';
+import { createImported } from './imported3d.js';
 
 // Scene colors come from the page's CSS tokens, so the 3D view follows the light or dark theme.
 function palette(){const css=getComputedStyle(document.documentElement),token=(name,fallback)=>css.getPropertyValue('--'+name).trim()||fallback;
@@ -131,4 +132,4 @@ function create(host,options){
     destroy(){disposed=true;cancelAnimationFrame(raf);observer.disconnect();controls.dispose();renderer.domElement.removeEventListener('pointerdown',down);renderer.domElement.removeEventListener('pointerup',up);renderer.domElement.removeEventListener('pointermove',move);scene.traverse(item=>{item.geometry?.dispose();if(item.material)for(const mat of Array.isArray(item.material)?item.material:[item.material]){mat.map?.dispose();mat.dispose();}});renderer.dispose();renderer.forceContextLoss();renderer.domElement.remove();}
   };
 }
-window.Kbit3D={create:(host,options)=>options.physical?window.KbitOperation3D.create(host,options):create(host,options)};
+window.Kbit3D={create:(host,options)=>options.physical?window.KbitOperation3D.create(host,options):options.imported?createImported(host,options):create(host,options)};

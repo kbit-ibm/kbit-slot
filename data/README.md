@@ -18,6 +18,13 @@ extraídos de una base externa. No representan ventas ni inventario real.
 4. La página muestra el catálogo importado y el plano de sus ubicaciones.
    En **Preparar turno** elige el motor y genera el plan.
 
+La operación importada también tiene vista **3D / Plano**. Con más de 24
+posiciones por pasillo, la vista 3D empieza en el primer sector; el selector
+**Sector** permite recorrerlos y **Ver almacén completo** encuadra todo el plano.
+Buscar un producto enfoca su sector. Demanda, conexiones y reproducción usan
+el catálogo y las ubicaciones importadas. Los productos y estantes se dibujan
+en lotes para evitar crear una escena separada por cada SKU.
+
 La importación completa reemplaza el catálogo, la distribución, los pedidos y las
 reglas de la operación activa. Se valida antes de aplicarse y se conserva en el
 navegador. El diseño del diseñador se conserva aparte. Usa Ayuda → Reiniciar
