@@ -35,3 +35,30 @@ test('malformed physical matrices or duplicate addresses are rejected',()=>{
  const r=O.create(M.fromPreset('parallel')),spec=JSON.parse(JSON.stringify(r.engine.spec));spec.layout.distances[0][1]+=1;assert.throws(()=>Base.createInstance(spec),/simétricas/);
  const other=JSON.parse(JSON.stringify(r.engine.spec));other.layout.slots[1].name=other.layout.slots[0].name;assert.throws(()=>Base.createInstance(other),/repetirse/);
 });
+
+test('Fishbone chooses a nearby crossing or the V instead of detouring through the rear',()=>{
+ const r=O.create({...M.fromPreset('fishbone'),aisleWidth:3.2});
+ // Independent measurements in plan, including access to each shelf.
+ for(const [origin,destination,expected] of [
+  ['P11-I-E02-N03-U01','P05-D-E11-N03-U01',36.94837275732077],
+  ['P13-I-E01-N01-U01','P03-D-E11-N01-U01',46.98584801700888]
+ ]){
+  const from=r.slots.findIndex(s=>s.name===origin),to=r.slots.findIndex(s=>s.name===destination),path=r.route(from,to);
+  const length=path.reduce((sum,p,i)=>i?sum+Math.hypot(p.x-path[i-1].x,p.z-path[i-1].z):0,0);
+  assert.ok(Math.abs(length-expected)<1e-6,origin);
+  assert.ok(Math.abs(r.engine.distance(from,to)-expected)<1e-6);
+  if(origin.startsWith('P11'))assert.ok(path.some(p=>Math.abs(p.z-.9)<1e-6),'uses the nearby transverse crossing');
+  else assert.ok(path.some(p=>Math.abs(p.x)<1e-6&&Math.abs(p.z-19.6)<1e-6),'crosses the visible V apex');
+  assert.ok(path.every(p=>p.z>=0),'never visits the rear');
+ }
+});
+
+test('V circulation and entrance stay connected across depths, widths and rack sides',()=>{
+ for(const geometry of ['flying-v','fishbone'])for(const vDepth of [25,60,80])for(const sides of [1,2])for(const aisleWidth of [1.5,3.2,6]){
+  const c={...M.fromPreset(geometry),vDepth,sides,aisleWidth},r=O.create(c),seen=new Set([0]),pending=[0];
+  while(pending.length)for(const edge of r.graph.edges[pending.pop()])if(!seen.has(edge.to)){seen.add(edge.to);pending.push(edge.to);}
+  assert.equal(seen.size,r.graph.nodes.length,JSON.stringify({geometry,vDepth,sides,aisleWidth}));
+  const runs=M.runs(c);
+  for(const line of r.graph.lines)assert.ok(!runs.some(rack=>M.intersects(rack,M.pathRect({points:[line.a,line.b],width:.02}))),JSON.stringify({geometry,vDepth,sides,aisleWidth}));
+ }
+});

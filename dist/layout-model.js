@@ -79,12 +79,21 @@
         add((2+wing)*c.aisles+a,side,b,x,z,Math.PI/2,wing===0?'lower-left':'lower-right',a);
       }
       if(c.geometry==='parallel'||c.geometry==='flying-v')for(let b=c.crossEvery;b<c.bays;b+=c.crossEvery){const z=back+b*c.bayWidth+Math.floor((b-1)/c.crossEvery)*3+1.5;road('cross-'+b,{x:-width/2,z},{x:width/2,z},'cross',3);}
+      if(fish)for(let b=c.crossEvery;b<c.bays;b+=c.crossEvery){
+        const along=b*c.bayWidth+Math.floor((b-1)/c.crossEvery)*3+1.5,z=back+along;
+        // The same access gaps already separate the shelf modules. Clip each crossing
+        // to its zone so an upper crossing never passes through the lower racks.
+        const reach=Math.min(width/2,Math.max(0,(front-z)/slope));
+        if(z<front&&reach>0)road('upper-cross-'+b,{x:-reach,z},{x:reach,z},'cross',3);
+        const x=width/2-along;
+        if(x>0)for(const sign of [-1,1])road('lower-cross-'+b+'-'+sign,{x:sign*x,z:Math.max(back,front-slope*x)},{x:sign*x,z:front},'cross',3);
+      }
     }
     // Rack geometry stays independent of the number of levels and shelf locations.
     if(!all.length)throw new Error('No caben estantes con estas medidas. Amplía las filas o el tamaño del estante.');
     all.forEach(r=>r.z+=zShift);paths.forEach(path=>path.points.forEach(p=>p.z+=zShift));
     width=round(width+4);depth=round(depth+12);
-    if(c.geometry!=='parallel')road('entrada',{x:0,z:depth/2-2.7},{x:0,z:c.geometry==='chevron'?paths[0].points[0].z:depth/2-6});
+    if(c.geometry!=='parallel')road('entrada',{x:0,z:depth/2-2.7},{x:0,z:paths[0].points[0].z});
     const groups=new Map();
     for(const rack of all){const key=rack.zone+':'+Math.floor(rack.localA/4)+':'+Math.floor(rack.bay/10);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(rack);}
     const sectors=[],sectorRacks=new Map(),runs=[];

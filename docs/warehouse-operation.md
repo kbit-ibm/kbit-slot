@@ -14,6 +14,10 @@ Solo el siguiente movimiento se puede confirmar. La confirmación actualiza la u
 
 El motor recibe esas distancias y direcciones mediante `kind: 'physical'`. El plano SVG y la escena 3D comparten el mismo modelo paramétrico. En almacenes grandes la escena general conserva la representación por sectores; seleccionar un producto permite explorar su sector.
 
+Las uniones con la V se obtienen de sus coordenadas dibujadas, sin reconstruirlas desde las dimensiones del edificio. Fishbone incorpora también los cruces en los huecos entre módulos, limitados a cada zona. Dijkstra elige la menor distancia entre las vías de esa red; el reproductor muestra los metros recorridos en planta, sin sumar la bajada o subida de la caja. Es un criterio de distancia, sin velocidades de equipos ni congestión.
+
+La corrección de las rutas conserva las direcciones, tareas y confirmaciones existentes. Al reproducir un plan guardado se usa la red actual. Un nuevo cálculo usa también sus distancias corregidas; las métricas archivadas de planes anteriores conservan la valoración de cuando se generaron.
+
 ## Datos y límites
 
 - Hasta 30 productos y pedidos sintéticos del catálogo existente, colocados de forma reproducible en direcciones del diseño. Un almacén muy pequeño usa menos productos y conserva una ubicación libre.

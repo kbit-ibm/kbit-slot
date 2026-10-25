@@ -29,9 +29,18 @@
     }
     const slots=selected.map(position),allRows=new Map();
     for(const s of sectors)for(const rack of M.racks(config,s.id)){if(!allRows.has(rack.aisle))allRows.set(rack.aisle,[]);allRows.get(rack.aisle).push(rack);}
-    const lines=[],front=stats.depth/2-6,back=-stats.depth/2+2,half=(stats.width-4)/2;
+    const main=M.paths(config).filter(p=>p.kind==='main'||p.kind==='cross'),diagonals=main.filter(p=>p.id==='v-left'||p.id==='v-right');
+    let front=-Infinity,back=Infinity;
+    for(const row of allRows.values())for(const rack of row)for(const p of M.corners(rack)){front=Math.max(front,p.z);back=Math.min(back,p.z);}
+    for(const path of diagonals)for(const p of path.points)front=Math.max(front,p.z);
+    const lines=[],half=(stats.width-4)/2;
     const line=(a,b)=>{if(distance(a,b)>.0001)lines.push({a,b,points:[]});};
-    const main=M.paths(config).filter(p=>p.kind==='main'||p.kind==='cross');
+    // Use the rendered V directly: rebuilding it from dimensions loses its coordinate shift.
+    function vJunction(a,horizontal){
+      const [u,v]=diagonals.find(p=>p.id===(a.x<0?'v-left':'v-right')).points;
+      const t=horizontal?(a.z-u.z)/(v.z-u.z):(a.x-u.x)/(v.x-u.x);
+      return {x:u.x+t*(v.x-u.x),z:u.z+t*(v.z-u.z)};
+    }
     main.forEach(p=>line(p.points[0],p.points[1]));
     if(config.geometry!=='chevron'){
       line({x:-half-1,z:front+1},{x:half+1,z:front+1});line({x:-half-1,z:back-1},{x:half+1,z:back-1});
@@ -45,10 +54,10 @@
         const far=row.map(access).sort((u,v)=>(v.x*tx+v.z*tz)-(u.x*tx+u.z*tz))[0];
         start=joint;end={x:far.x+tx*(config.bayWidth/2+.5),z:far.z+tz*(config.bayWidth/2+.5)};junctions.push(joint.z);
       }else if(r.zone.startsWith('lower')){
-        const sign=r.zone==='lower-left'?-1:1,slope=(stats.depth-12)*config.vDepth/100/half;
-        start={x:sign*(half+1),z:a.z};end={x:sign*(front-a.z)/slope,z:a.z};
+        const sign=r.zone==='lower-left'?-1:1;
+        start={x:sign*(half+1),z:a.z};end=vJunction(a,true);
       }else{
-        start={x:a.x,z:back-1};end={x:a.x,z:config.geometry==='fishbone'?front-(stats.depth-12)*config.vDepth/100/half*Math.abs(a.x):front+1};
+        start={x:a.x,z:back-1};end=config.geometry==='fishbone'?vJunction(a,false):{x:a.x,z:front+1};
       }
       line(start,end);rowLines.set(id,lines.at(-1));
     }

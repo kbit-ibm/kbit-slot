@@ -26,6 +26,7 @@ function create(host,options){
     clear(routeGroup);route=null;
     if(index>=simulation.tasks.length){playing=false;emit();links();options.onPlayback?.({status:'complete',step:index,total:simulation.tasks.length,progress:1,plan:simulation});return;}
     const task={...simulation.tasks[index],fromSector:runtime.slots[simulation.tasks[index].from].sector,toSector:runtime.slots[simulation.tasks[index].to].sector},points=runtime.route(task.from,task.to).map(p=>new THREE.Vector3(p.x,p.y,p.z)),lengths=[0];
+    task.routeMeters=points.reduce((sum,p,i)=>i?sum+Math.hypot(p.x-points[i-1].x,p.z-points[i-1].z):0,0);
     for(let i=1;i<points.length;i++)lengths.push(lengths[i-1]+points[i].distanceTo(points[i-1]));route={task,points,lengths,total:lengths.at(-1),duration:Math.max(2,Math.min(5,lengths.at(-1)*.06))};
     const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(points),new THREE.LineDashedMaterial({color:accent,dashSize:.35,gapSize:.2,depthTest:false}));line.computeLineDistances();line.renderOrder=4;routeGroup.add(line);
     select(task.product);focus(task.fromSector===task.toSector?task.fromSector:null);

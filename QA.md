@@ -1,3 +1,16 @@
+# Corrección de recorridos en Fishbone
+
+- 43 pruebas aprobadas; build y archivo independiente regenerados.
+- Se reprodujo un desvío al fondo en el movimiento de Carpetas: P11-I-E02-N03-U01 → P05-D-E11-N03-U01. El modelo anterior calculaba 101 m en planta.
+- Causa: la reconstrucción de la V ignoraba el desplazamiento de coordenadas del modelo. Los pasillos inferiores terminaban antes de la vía diagonal; además no estaban registrados los cruces transversales que ya dejaban los módulos.
+- Las uniones usan ahora las coordenadas reales de la V. Los cruces de Fishbone se recortan a cada zona y los conectores periféricos siguen los límites de los estantes. La entrada llega al vértice dibujado.
+- Misma reubicación de Carpetas: 36,948 m, por el cruce cercano. Agua mineral entre P13-I-E01-N01-U01 y P03-D-E11-N01-U01 pasa de 117,7 a 46,986 m por la V. Son distancias del modelo en planta.
+- Regresiones: comparación con distancias independientes de esos dos recorridos, sin visita al fondo; red conectada y sin cruces por estantes en 36 combinaciones de Flying-V/Fishbone, profundidad, anchura y lados.
+- El reproductor muestra la distancia en planta del paso. Comprobado en el navegador: Paso 2 / Carpetas / 36.9 m. El turno conservó su confirmación y cinco movimientos pendientes.
+- Captura: docs/route-shortcut.png. La corrección se aplica al reproducir tareas existentes; no reinicia la operación.
+
+---
+
 # Verificación de la operación sobre el diseño guardado
 
 - 41 pruebas aprobadas: 19 del motor, 13 de las geometrías y 9 del adaptador de operación.
