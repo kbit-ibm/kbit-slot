@@ -80,6 +80,18 @@ Un pasillo, nivel o posición que no existe en el plano produce un error con el 
 | `moved` | Productos cuya posición final cambia. |
 | `tasks` | Movimientos en orden: `{ id, product, from, to, temporary, done }`. Un ciclo usa una posición libre, primero las reservadas y dentro de la zona del producto si se puede. |
 | `rules`, `history` | Copia de las reglas y evolución del índice. |
+| `solver` | Método usado y su registro: `id`, `label`, `evaluations`, `milliseconds`. |
+
+## Cálculo
+
+| Función | Uso |
+|---|---|
+| `optimize(inicial, pedidos, reglas, opciones)` | Calcula el plan de forma síncrona. Para pruebas, scripts y Node. |
+| `solveAsync(inicial, pedidos, reglas, { onProgress, signal, ...opciones })` | Promesa con el mismo plan, calculado en un Web Worker creado desde el propio motor (funciona también abriendo el HTML como archivo). Sin Worker, calcula en tramos de 25 ms sobre la página. `signal` (AbortController) cancela y rechaza con un error `AbortError`. |
+| `createSolver(inicial, pedidos, reglas, opciones)` | Solver por tramos: `step(ms)` devuelve el estado y `result()` el plan cuando `done` es verdadero. |
+| `deltaMove(distribución, flujos, producto, posición)` y `deltaSwap(distribución, flujos, a, b)` | Cambio del índice al mover a una posición vacía o intercambiar dos productos, en O(n). |
+
+El estado de progreso es `{ done, phase, progress (0–1), before, best, evaluations, elapsed }`. La interfaz no debe llamar a `optimize` en la página para cálculos que el usuario espera: usa `solveAsync`.
 
 ## Qué cambiar en la interfaz para otro plano
 

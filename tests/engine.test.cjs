@@ -96,3 +96,15 @@ test('la búsqueda voraz reproduce los resultados del motor anterior',()=>{
   const {assignment,orders}=E.demo();
   for(const [maxMoves,after] of [[0,4454],[2,4100],[4,3780],[6,3482],[8,3256],[12,3059],[30,2722]])assert.equal(E.optimize(assignment,orders,{maxMoves,pinned:[10],cleaningZone:true}).after,after);
 });
+
+test('cálculo por tramos y asíncrono: mismo plan que optimize, con progreso y cancelación',async()=>{
+  const {assignment,orders}=E.demo(),rules={maxMoves:8,pinned:[10],cleaningZone:true},reference=E.optimize(assignment,orders,rules);
+  const solver=E.createSolver(assignment,orders,rules);let state,slices=0;do{state=solver.step(0);slices++;}while(!state.done);
+  assert(slices>1);assert.equal(state.progress,1);assert.deepEqual(solver.result().target,reference.target);
+  const updates=[];const plan=await E.solveAsync(assignment,orders,rules,{onProgress:s=>updates.push(s)});
+  assert.deepEqual(plan.target,reference.target);assert.equal(plan.after,reference.after);assert(updates.length>0);assert.equal(updates.at(-1).done,true);
+  const controller=new AbortController();controller.abort();
+  await assert.rejects(E.solveAsync(assignment,orders,rules,{signal:controller.signal}),{name:'AbortError'});
+  await assert.rejects(E.solveAsync(assignment,orders,{maxMoves:4,pinned:[],zones:[{families:[0],aisles:['A']}]}),/no cumple las reglas/);
+  assert.throws(()=>E.createSolver(assignment,orders,rules).result(),/no terminó/);
+});

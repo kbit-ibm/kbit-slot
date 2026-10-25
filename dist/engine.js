@@ -9,6 +9,9 @@
     const DEFAULT_LAYOUT = Object.freeze({ version:1, aisles:Object.freeze(['A','B','C','D']), bays:8, levels:1, aisleSpacing:4, levelCost:1, reserved:Object.freeze(['D08']) });
     const CLEANING_ZONE = Object.freeze({ id:'limpieza', label:'Limpieza en pasillo D', families:Object.freeze([2]), aisles:Object.freeze(['D']) });
     const isCount = (value, min) => Number.isInteger(value) && value >= min;
+    const now = () => typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const abortError = () => Object.assign(new Error('Cálculo cancelado.'), { name:'AbortError' });
+    let workerURL = null;
     function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let n = Math.imul(seed ^ seed >>> 15, 1 | seed); n ^= n + Math.imul(n ^ n >>> 7, 61 | n); return ((n ^ n >>> 14) >>> 0) / 4294967296; }; }
     function shuffle(array, random) { for(let i=array.length-1;i>0;i--) { const j=Math.floor(random()*(i+1)); [array[i],array[j]]=[array[j],array[i]]; } return array; }
 
@@ -104,13 +107,65 @@
         }
       }
 
-      function optimize(initial, orders, rules) {
+      // Step-wise solver: the work runs in slices so a caller can report progress, cancel, or keep the page responsive.
+      function createSolver(initial, orders, rules, options = {}) {
         if(!valid(initial,initial,rules)) throw new Error('La distribución actual no cumple las reglas. Revisa los productos fijos y la zona de limpieza.');
-        const R=compileRules(rules),matrix=flow(orders),search=createSearch(initial,matrix,R,initial),history=[],before=search.cost;
-        descend(search,R,products.map(p=>p.id).filter(id=>!R.pinned.has(id)),80,history);
-        const target=[...search.p],after=cost(target,matrix);
-        if(Math.abs(after-search.cost)>1e-6*Math.max(1,before) || !valid(target,initial,rules)) throw new Error('El cálculo incremental no coincide con el índice. Informa este caso.');
-        return {initial:[...initial],target,before,after,improvement:before ? (before-after)/before*100 : 0,moved:changed(initial,target),history,rules:JSON.parse(JSON.stringify(rules)),tasks:makeTasks(initial,target,rules)};
+        const R=compileRules(rules),matrix=flow(orders),search=createSearch(initial,matrix,R,initial),history=[],before=search.cost,started=now();
+        const movable=products.map(p=>p.id).filter(id=>!R.pinned.has(id));
+        let phase='voraz',rounds=0,elapsed=0;
+        const status=()=>({ done:phase==='listo', phase, progress:phase==='listo' ? 1 : 0, before, best:search.cost, evaluations:search.evaluations, elapsed });
+        return {
+          step(budget = Infinity) {
+            const deadline=now()+budget;
+            do {
+              const last=history.length;descend(search,R,movable,1,history);rounds++;
+              if(history.length===last || rounds>=80) phase='listo';
+            } while(phase==='voraz' && now()<deadline);
+            elapsed=now()-started;return status();
+          },
+          result() {
+            if(phase!=='listo') throw new Error('El cálculo todavía no terminó.');
+            const target=[...search.p],after=cost(target,matrix);
+            if(Math.abs(after-search.cost)>1e-6*Math.max(1,before) || !valid(target,initial,rules)) throw new Error('El cálculo incremental no coincide con el índice. Informa este caso.');
+            return {initial:[...initial],target,before,after,improvement:before ? (before-after)/before*100 : 0,moved:changed(initial,target),history,rules:JSON.parse(JSON.stringify(rules)),tasks:makeTasks(initial,target,rules),
+              solver:{ id:'voraz', label:'Búsqueda voraz', evaluations:search.evaluations, milliseconds:Math.round(elapsed) }};
+          }
+        };
+      }
+      function optimize(initial, orders, rules, options) { const solver=createSolver(initial,orders,rules,options);while(!solver.step().done);return solver.result(); }
+
+      // Same plan as optimize, computed in a Web Worker so the page never freezes. Without workers it runs in slices on the page.
+      // options: onProgress(status), signal (AbortSignal) and the solver settings.
+      function solveAsync(initial, orders, rules, options = {}) {
+        const { onProgress, signal, ...settings } = options;
+        return new Promise((resolve, reject) => {
+          if(signal?.aborted) return reject(abortError());
+          const onPage = () => {
+            let solver;try { solver=createSolver(initial,orders,rules,settings); } catch(error) { return reject(error); }
+            const slice = () => {
+              if(signal?.aborted) return reject(abortError());
+              try { const state=solver.step(25);onProgress?.(state);if(state.done) resolve(solver.result());else setTimeout(slice,0); } catch(error) { reject(error); }
+            };
+            setTimeout(slice,0);
+          };
+          let worker;
+          try {
+            if(typeof Worker!=='function') return onPage();
+            workerURL ||= URL.createObjectURL(new Blob(['const E=(' + kbitEngine + ')();\n(' + workerMain + ')(self,E);'], { type:'text/javascript' }));
+            worker=new Worker(workerURL);
+          } catch { return onPage(); }
+          let answered=false;
+          const finish = () => { worker.terminate();signal?.removeEventListener('abort',abort); };
+          const abort = () => { finish();reject(abortError()); };
+          signal?.addEventListener('abort',abort,{ once:true });
+          worker.onmessage = ({ data }) => {
+            answered=true;
+            if(data.type==='progress') onProgress?.(data.state);
+            else { finish();if(data.type==='result') resolve(data.plan);else reject(new Error(data.message)); }
+          };
+          worker.onerror = event => { event.preventDefault?.();finish();if(answered) reject(new Error(event.message || 'El cálculo se interrumpió.'));else onPage(); };
+          worker.postMessage({ spec:transfer, initial, orders, rules, options:settings });
+        });
       }
 
       // Moves products one at a time; a cycle borrows a free slot, reserved slots first, preferring one inside the product's zone.
@@ -161,7 +216,18 @@
       }
 
       return { spec:transfer, layout, products, groups:families, slotName:layout.slotName, distance:layout.distance, zones:rules => compileRules(rules).zones,
-        demo, flow, cost, deltaMove, deltaSwap, changed, valid, optimize, makeTasks, confirmTask, parseCSV };
+        demo, flow, cost, deltaMove, deltaSwap, changed, valid, createSolver, optimize, solveAsync, makeTasks, confirmTask, parseCSV };
+    }
+
+    // Runs inside the worker: rebuilds the instance from its plain spec and streams progress, then the plan.
+    function workerMain(scope, E) {
+      scope.onmessage = ({ data }) => {
+        try {
+          const solver=E.createInstance(data.spec).createSolver(data.initial,data.orders,data.rules,data.options);let state;
+          do { state=solver.step(50);scope.postMessage({ type:'progress', state }); } while(!state.done);
+          scope.postMessage({ type:'result', plan:solver.result() });
+        } catch(error) { scope.postMessage({ type:'error', message:error.message }); }
+      };
     }
 
     return { ...createInstance(), createInstance, createLayout, DEFAULT_LAYOUT, CLEANING_ZONE };

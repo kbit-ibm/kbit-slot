@@ -216,6 +216,7 @@ input[type=checkbox]{width:16px; height:16px; margin:0; flex-shrink:0; accent-co
 .pin-list label{display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid var(--rule); font-size:var(--fs-xs); cursor:pointer}
 .pin-list label>span{margin-left:auto; font-family:var(--f-display); font-weight:700; font-size:var(--fs-sm)}
 .rule-submit{margin-top:14px}
+.rule-submit .progress-track{margin:8px 0}
 .form-foot{margin-top:6px; text-align:center; font-size:var(--fs-xs); color:var(--muted)}
 .spin{display:inline-flex}
 .spin svg{width:16px; height:16px; animation:rotate 1.4s linear infinite}
