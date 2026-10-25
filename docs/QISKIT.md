@@ -7,6 +7,16 @@ El servicio en Python es opcional. Sin él, la app calcula en el navegador como 
 
 ## Arrancar
 
+El servicio carga automáticamente el archivo `.env` de la raíz del proyecto,
+también al arrancar con `uvicorn server.app:app`. Las variables ya definidas en
+la terminal tienen prioridad. `.env` está excluido de Git.
+
+Copia `.env.example` a `.env` y completa `QISKIT_IBM_TOKEN` con tu API key de
+IBM y `QISKIT_IBM_INSTANCE` con el CRN de tu instancia si vas a usar hardware.
+`KBIT_API_KEY` es una clave local distinta: introdúcela en la interfaz para
+autorizar trabajos en hardware. Reinicia el servicio después de editar `.env`.
+El motor Exacto (MILP · HiGHS) no necesita credenciales de IBM.
+
 Necesita Python 3.13+ y Node.js (el servicio usa el mismo motor que el navegador).
 
 ```bash
