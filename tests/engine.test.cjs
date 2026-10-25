@@ -48,3 +48,35 @@ test('CSV: errores de cabecera, SKU desconocido y comillas abiertas',()=>{
 test('las distancias usan pasillos transversales y son simétricas',()=>{
   assert.equal(E.distance(0,7),7);assert.equal(E.distance(0,8),6);assert.equal(E.distance(7,15),6);assert.equal(E.distance(4,4),0);for(let a=0;a<32;a++)for(let b=0;b<32;b++)assert.equal(E.distance(a,b),E.distance(b,a));
 });
+
+test('plano por defecto: numeración histórica, reserva D08 y 31 posiciones asignables',()=>{
+  assert.equal(E.layout.slotCount,32);assert.equal(E.slotName(0),'A01');assert.equal(E.slotName(31),'D08');assert.equal(E.layout.slotIndex('C05'),20);
+  assert.deepEqual(E.layout.reserved,[31]);assert.equal(E.layout.assignable.length,31);assert.deepEqual(E.layout.spec,{version:1,aisles:['A','B','C','D'],bays:8,levels:1,aisleSpacing:4,levelCost:1,reserved:['D08']});
+});
+
+test('plano de dos niveles: nombres con nivel, costo vertical y misma demo en el piso',()=>{
+  const I=E.createInstance({layout:{levels:2}}),base=E.demo(),data=I.demo();
+  assert.equal(I.layout.slotCount,64);assert.equal(I.slotName(0),'A01-1');assert.equal(I.slotName(1),'A01-2');assert.deepEqual(I.layout.spec.reserved,['D08-1']);
+  assert.equal(I.distance(0,1),1);assert.equal(I.distance(0,17),E.distance(0,8)+1);
+  for(let a=0;a<64;a++)for(let b=0;b<64;b++)for(const c of [0,21,63])assert(I.distance(a,b)<=I.distance(a,c)+I.distance(c,b));
+  assert.deepEqual(data.orders,base.orders);assert.deepEqual(data.assignment.map(I.slotName),base.assignment.map(slot=>E.slotName(slot)+'-1'));
+  const rules={maxMoves:6,pinned:[10],cleaningZone:true},plan=I.optimize(data.assignment,data.orders,rules);
+  assert.equal(plan.before,E.optimize(base.assignment,base.orders,rules).before);assert(plan.after<plan.before);assert.equal(I.valid(plan.target,data.assignment,rules),true);
+});
+
+test('zonas: la casilla de limpieza equivale a la zona genérica y los filtros se combinan',()=>{
+  const {assignment,orders}=E.demo(),legacy={maxMoves:8,pinned:[],cleaningZone:true},generic={maxMoves:8,pinned:[],zones:[E.CLEANING_ZONE]};
+  assert.deepEqual(E.optimize(assignment,orders,legacy).target,E.optimize(assignment,orders,generic).target);
+  assert.deepEqual(E.zones({cleaningZone:true,zones:[]}),[]);
+  const I=E.createInstance({layout:{levels:2}}),data=I.demo(),zones=[{id:'pesados',families:[5],levels:[1]},{id:'limpieza',families:[2],aisles:['D']}];
+  const plan=I.optimize(data.assignment,data.orders,{maxMoves:12,pinned:[],zones});
+  for(const p of I.products){const slot=I.layout.slots[plan.target[p.id]];if(p.family===5)assert.equal(slot.level,0);if(p.family===2)assert.equal(slot.aisle,3);}
+  assert.throws(()=>E.valid(assignment,assignment,{zones:[{label:'Fríos',families:[0],aisles:['Z']}]}),/Fríos.*Z/);
+  assert.throws(()=>I.valid(data.assignment,data.assignment,{zones:[{id:'alto',families:[0],levels:[3]}]}),/nivel 3/);
+  assert.throws(()=>E.optimize(assignment,orders,{maxMoves:4,pinned:[],zones:[{families:[0],aisles:['A']}]}),/no cumple las reglas/);
+});
+
+test('plano y catálogo inválidos se rechazan con mensajes claros',()=>{
+  assert.throws(()=>E.createLayout({aisles:['A','A']}),/únicos/);assert.throws(()=>E.createLayout({levels:0}),/enteros positivos/);
+  assert.throws(()=>E.createLayout({reserved:['Z99']}),/Z99/);assert.throws(()=>E.createInstance({layout:{aisles:['A'],bays:8,reserved:[]}}),/más productos/);
+});

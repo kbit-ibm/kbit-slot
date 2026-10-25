@@ -81,7 +81,7 @@ En Ayuda puedes reiniciar la demostración. La importación CSV acepta `order_id
 - `dist/layout-model.js`: validación, capacidad, geometría lógica, sectores y direcciones.
 - `dist/designer.js` y `dist/designer.css`: configurador, plano 2D y persistencia del diseño.
 - `dist/warehouse3d.js`: motor visual empaquetado para uso sin conexión.
-- `dist/engine.js`: datos, objetivo, optimización y secuencias de movimiento.
+- `dist/engine.js`: datos, objetivo, optimización y secuencias de movimiento. Acepta otros planos (pasillos, posiciones, niveles, reservas) y zonas por familia; el formato está en `docs/CONTRATO-MOTOR.md`.
 - `server.mjs`: servidor estático local sin dependencias.
 - `tests/engine.test.cjs`: validaciones del motor y del CSV.
 - `tests/layout.test.cjs`: capacidad, direcciones únicas, cobertura de sectores y límites del modelo.

@@ -572,86 +572,156 @@ input[type=file]::file-selector-button{margin-right:10px; padding:5px 10px; back
 ;
 (function (root) {
   'use strict';
-  const names = ['Agua mineral','Jugo de naranja','Gaseosa','Café molido','Té verde','Galletas','Chocolate','Papas fritas','Frutos secos','Barras de cereal','Detergente','Lavavajillas','Desinfectante','Esponjas','Limpiavidrios','Cuadernos','Bolígrafos','Papel A4','Carpetas','Cinta adhesiva','Champú','Jabón','Pasta dental','Crema corporal','Desodorante','Alimento perro','Alimento gato','Arena para gato','Snacks mascota','Bolsas mascota'];
-  const groups = ['Bebidas','Snacks','Limpieza','Oficina','Cuidado personal','Mascotas'];
-  const products = names.map((name, id) => ({ id, code:'SKU-' + String(id+1).padStart(3,'0'), name, family:Math.floor(id/5), category:groups[Math.floor(id/5)] }));
-  const slotName = slot => 'ABCD'[Math.floor(slot/8)] + String(slot%8+1).padStart(2,'0');
-  function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let n = Math.imul(seed ^ seed >>> 15, 1 | seed); n ^= n + Math.imul(n ^ n >>> 7, 61 | n); return ((n ^ n >>> 14) >>> 0) / 4294967296; }; }
-  function shuffle(array, random) { for(let i=array.length-1;i>0;i--) { const j=Math.floor(random()*(i+1)); [array[i],array[j]]=[array[j],array[i]]; } return array; }
-  function demo() {
-    const random=rng(814); const free=shuffle(Array.from({length:30},(_,i)=>i).filter(i=>i<24 || i>28),random);
-    const assignment=products.map(p=>p.family===2 ? 24+p.id-10 : free.pop());
-    const orders=[];
-    for(let i=0;i<180;i++) {
-      const family=Math.floor(random()*6); const pool=shuffle(products.filter(p=>p.family===family).map(p=>p.id),random);
-      const items=pool.slice(0,2+Math.floor(random()*2));
-      if(random()<.38) { const candidates=products.filter(p=>p.family!==family && p.family!==2).map(p=>p.id); items.push(candidates[Math.floor(random()*candidates.length)]); }
-      orders.push({id:'DEMO-'+String(i+1).padStart(3,'0'),items:[...new Set(items)]});
+  // The engine is one self-contained factory: the page uses it directly and the plan worker rebuilds it from its own source.
+  function kbitEngine() {
+    const names = ['Agua mineral','Jugo de naranja','Gaseosa','Café molido','Té verde','Galletas','Chocolate','Papas fritas','Frutos secos','Barras de cereal','Detergente','Lavavajillas','Desinfectante','Esponjas','Limpiavidrios','Cuadernos','Bolígrafos','Papel A4','Carpetas','Cinta adhesiva','Champú','Jabón','Pasta dental','Crema corporal','Desodorante','Alimento perro','Alimento gato','Arena para gato','Snacks mascota','Bolsas mascota'];
+    const groups = ['Bebidas','Snacks','Limpieza','Oficina','Cuidado personal','Mascotas'];
+    const catalog = names.map((name, id) => ({ id, code:'SKU-' + String(id+1).padStart(3,'0'), name, family:Math.floor(id/5), category:groups[Math.floor(id/5)] }));
+    // Plan of the demo warehouse. See docs/CONTRATO-MOTOR.md for every field.
+    const DEFAULT_LAYOUT = Object.freeze({ version:1, aisles:Object.freeze(['A','B','C','D']), bays:8, levels:1, aisleSpacing:4, levelCost:1, reserved:Object.freeze(['D08']) });
+    const CLEANING_ZONE = Object.freeze({ id:'limpieza', label:'Limpieza en pasillo D', families:Object.freeze([2]), aisles:Object.freeze(['D']) });
+    const isCount = (value, min) => Number.isInteger(value) && value >= min;
+    function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let n = Math.imul(seed ^ seed >>> 15, 1 | seed); n ^= n + Math.imul(n ^ n >>> 7, 61 | n); return ((n ^ n >>> 14) >>> 0) / 4294967296; }; }
+    function shuffle(array, random) { for(let i=array.length-1;i>0;i--) { const j=Math.floor(random()*(i+1)); [array[i],array[j]]=[array[j],array[i]]; } return array; }
+
+    function createLayout(spec = {}) {
+      const layout = { ...DEFAULT_LAYOUT, ...spec };
+      const { aisles, bays, levels, aisleSpacing, levelCost } = layout;
+      if(!Array.isArray(aisles) || !aisles.length || aisles.some(a => typeof a !== 'string' || !a) || new Set(aisles).size !== aisles.length) throw new Error('El plano necesita al menos un pasillo y nombres de pasillo únicos.');
+      if(!isCount(bays,1) || !isCount(levels,1)) throw new Error('Las posiciones por pasillo y los niveles deben ser enteros positivos.');
+      if(!(aisleSpacing > 0) || !(levelCost >= 0)) throw new Error('La separación entre pasillos debe ser positiva y el costo por nivel no puede ser negativo.');
+      // Slot index = (aisle × bays + bay) × levels + level, so a one-level plan keeps the historical numbering A01 = 0 … D08 = 31.
+      const slots = [];
+      aisles.forEach((label, aisle) => { for(let bay=0;bay<bays;bay++) for(let level=0;level<levels;level++) slots.push({ index:slots.length, aisle, bay, level, name:label + String(bay+1).padStart(2,'0') + (levels > 1 ? '-' + (level+1) : '') }); });
+      const byName = new Map(slots.map(slot => [slot.name, slot.index]));
+      // A name without level ("D08") means level 1 when the plan has several levels ("D08-1").
+      const slotIndex = name => byName.get(name) ?? (levels > 1 ? byName.get(name + '-1') : undefined);
+      const reserved = [...new Set((layout.reserved || []).map(name => { const index = slotIndex(name); if(index === undefined) throw new Error('La reserva ' + name + ' no existe en el plano.'); return index; }))];
+      // Walking distance: along the aisle inside it; otherwise through the closest cross aisle (front or back), plus a cost per level of height difference.
+      const turn = 2 * (bays + 1);
+      const distances = slots.map(a => Float64Array.from(slots, b => {
+        const rowA = a.bay + 1, rowB = b.bay + 1;
+        const floor = a.aisle === b.aisle ? Math.abs(rowA - rowB) : Math.abs(a.aisle - b.aisle) * aisleSpacing + Math.min(rowA + rowB, turn - rowA - rowB);
+        return floor + levelCost * Math.abs(a.level - b.level);
+      }));
+      return {
+        spec:{ version:1, aisles:[...aisles], bays, levels, aisleSpacing, levelCost, reserved:reserved.map(index => slots[index].name) },
+        slots, slotCount:slots.length, distances, reserved, assignable:slots.map(slot => slot.index).filter(index => !reserved.includes(index)),
+        slotName:index => slots[index]?.name, slotIndex, distance:(a, b) => distances[a][b]
+      };
     }
-    return {assignment,orders};
-  }
-  function flow(orders) {
-    const matrix=products.map(()=>products.map(()=>0));
-    for(const order of orders) { const items=[...new Set(order.items)]; for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++){matrix[items[i]][items[j]]++;matrix[items[j]][items[i]]++;} }
-    return matrix;
-  }
-  function distance(a,b) {
-    const aisleA=Math.floor(a/8),aisleB=Math.floor(b/8),rowA=a%8+1,rowB=b%8+1;
-    return aisleA===aisleB ? Math.abs(rowA-rowB) : Math.abs(aisleA-aisleB)*4 + Math.min(rowA+rowB,18-rowA-rowB);
-  }
-  function cost(assignment,matrix) { let sum=0;for(let i=0;i<30;i++)for(let j=i+1;j<30;j++)sum+=matrix[i][j]*distance(assignment[i],assignment[j]);return sum; }
-  function changed(initial,final) { return final.reduce((n,slot,id)=>n+Number(slot!==initial[id]),0); }
-  function valid(assignment,initial,rules) {
-    return assignment.length===30 && assignment.every(slot=>Number.isInteger(slot)&&slot>=0&&slot<31) && new Set(assignment).size===30 && changed(initial,assignment)<=rules.maxMoves &&
-      (rules.pinned||[]).every(id=>assignment[id]===initial[id]) && (!rules.cleaningZone || products.filter(p=>p.family===2).every(p=>Math.floor(assignment[p.id]/8)===3));
-  }
-  function optimize(initial,orders,rules) {
-    if(!valid(initial,initial,rules)) throw new Error('La distribución actual no cumple las reglas. Revisa los productos fijos y la zona de limpieza.');
-    const matrix=flow(orders),assignment=[...initial],history=[];let current=cost(assignment,matrix);const before=current;
-    for(let round=0;round<80;round++) {
-      let best=current,bestAssignment=null;
-      const occupancy=Array(32).fill(-1);assignment.forEach((slot,id)=>occupancy[slot]=id);
-      for(let a=0;a<30;a++) {
-        if(rules.pinned.includes(a))continue;
-        for(let slot=0;slot<32;slot++) {
-          if(slot===assignment[a])continue;const b=occupancy[slot];if(b>=0 && (b<a || rules.pinned.includes(b)))continue;
-          const candidate=[...assignment];candidate[a]=slot;if(b>=0)candidate[b]=assignment[a];
-          if(!valid(candidate,initial,rules))continue;
-          const value=cost(candidate,matrix);if(value<best){best=value;bestAssignment=candidate;}
-        }
+
+    function createInstance(spec = {}) {
+      const layout = createLayout(spec.layout);
+      const products = spec.products || catalog, families = spec.groups || groups, n = products.length, D = layout.distances;
+      if(!n || products.some((p, i) => p.id !== i || !isCount(p.family,0))) throw new Error('Los productos deben numerarse de 0 a n−1 y tener una familia.');
+      if(n > layout.assignable.length) throw new Error('Hay más productos (' + n + ') que posiciones asignables (' + layout.assignable.length + ').');
+      const transfer = { layout:layout.spec, products:spec.products, groups:spec.groups };
+
+      function flow(orders) {
+        const matrix=products.map(()=>products.map(()=>0));
+        for(const order of orders) { const items=[...new Set(order.items)]; for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++){matrix[items[i]][items[j]]++;matrix[items[j]][items[i]]++;} }
+        return matrix;
       }
-      if(!bestAssignment)break;assignment.splice(0,30,...bestAssignment);current=best;history.push(best);
+      function cost(assignment, matrix) { let sum=0;for(let i=0;i<n;i++)for(let j=i+1;j<n;j++)sum+=matrix[i][j]*D[assignment[i]][assignment[j]];return sum; }
+      function changed(initial, final) { return final.reduce((count, slot, id) => count + Number(slot !== initial[id]), 0); }
+
+      // Rules: maxMoves, pinned products and zones. The legacy flag cleaningZone means the zone "family 2 in aisle D".
+      function compileRules(rules = {}) {
+        const zones = Array.isArray(rules.zones) ? rules.zones : rules.cleaningZone ? [CLEANING_ZONE] : [];
+        const allowed = products.map(() => null);
+        for(const zone of zones) {
+          const title = zone.label || zone.id || 'sin nombre';
+          const aisles = zone.aisles?.map(label => { const aisle = layout.spec.aisles.indexOf(label); if(aisle < 0) throw new Error('La zona ' + title + ' usa el pasillo ' + label + ', que no existe en el plano.'); return aisle; });
+          const levels = zone.levels?.map(level => { if(!isCount(level,1) || level > layout.spec.levels) throw new Error('La zona ' + title + ' usa el nivel ' + level + ', que no existe en el plano.'); return level - 1; });
+          const named = zone.slots?.map(name => { const index = layout.slotIndex(name); if(index === undefined) throw new Error('La zona ' + title + ' usa la posición ' + name + ', que no existe en el plano.'); return index; });
+          const inside = layout.slots.map(slot => (!aisles || aisles.includes(slot.aisle)) && (!levels || levels.includes(slot.level)) && (!named || named.includes(slot.index)));
+          for(const p of products) if(zone.families?.includes(p.family) || zone.products?.includes(p.id)) allowed[p.id] = allowed[p.id] ? allowed[p.id].map((ok, slot) => ok && inside[slot]) : inside;
+        }
+        const assignable = new Uint8Array(layout.slotCount); layout.assignable.forEach(index => assignable[index] = 1);
+        const inZone = (product, slot) => !allowed[product] || allowed[product][slot];
+        return { maxMoves:rules.maxMoves ?? Infinity, pinned:new Set(rules.pinned || []), zones, inZone, fits:(product, slot) => assignable[slot] === 1 && inZone(product, slot) };
+      }
+      function valid(assignment, initial, rules) {
+        const R = compileRules(rules);
+        return assignment.length === n && assignment.every((slot, id) => Number.isInteger(slot) && slot >= 0 && slot < layout.slotCount && R.fits(id, slot)) && new Set(assignment).size === n &&
+          changed(initial, assignment) <= R.maxMoves && [...R.pinned].every(id => assignment[id] === initial[id]);
+      }
+
+      function optimize(initial, orders, rules) {
+        if(!valid(initial,initial,rules)) throw new Error('La distribución actual no cumple las reglas. Revisa los productos fijos y la zona de limpieza.');
+        const R=compileRules(rules),matrix=flow(orders),assignment=[...initial],history=[];let current=cost(assignment,matrix);const before=current;
+        for(let round=0;round<80;round++) {
+          let best=current,bestAssignment=null;
+          const occupancy=Array(layout.slotCount).fill(-1);assignment.forEach((slot,id)=>occupancy[slot]=id);
+          for(let a=0;a<n;a++) {
+            if(R.pinned.has(a))continue;
+            for(let slot=0;slot<layout.slotCount;slot++) {
+              if(slot===assignment[a])continue;const b=occupancy[slot];if(b>=0 && (b<a || R.pinned.has(b)))continue;
+              const candidate=[...assignment];candidate[a]=slot;if(b>=0)candidate[b]=assignment[a];
+              if(!valid(candidate,initial,rules))continue;
+              const value=cost(candidate,matrix);if(value<best){best=value;bestAssignment=candidate;}
+            }
+          }
+          if(!bestAssignment)break;assignment.splice(0,n,...bestAssignment);current=best;history.push(best);
+        }
+        return {initial:[...initial],target:assignment,before,after:current,improvement:before ? (before-current)/before*100 : 0,moved:changed(initial,assignment),history,rules:JSON.parse(JSON.stringify(rules)),tasks:makeTasks(initial,assignment,rules)};
+      }
+
+      // Moves products one at a time; a cycle borrows a free slot, reserved slots first, preferring one inside the product's zone.
+      function makeTasks(initial, target, rules) {
+        const R = rules ? compileRules(rules) : null, order = [...layout.reserved, ...layout.assignable];
+        const current=[...initial],tasks=[];let safety=0;
+        while(changed(current,target)>0) {
+          if(++safety>Math.max(200,4*n))throw new Error('No se pudo construir una secuencia de movimientos.');
+          let id=current.findIndex((slot,i)=>slot!==target[i] && !current.includes(target[i]));let temporary=false;
+          if(id<0){id=current.findIndex((slot,i)=>slot!==target[i]);temporary=true;}
+          const free=temporary ? order.filter(slot=>!current.includes(slot)) : [];
+          const destination=temporary ? (free.find(slot=>!R || R.inZone(id,slot)) ?? free[0]) : target[id];
+          if(destination===undefined)throw new Error('Se necesita una ubicación libre para ejecutar los movimientos.');
+          tasks.push({id:tasks.length+1,product:id,from:current[id],to:destination,temporary,done:false});current[id]=destination;
+        }
+        return tasks;
+      }
+      function confirmTask(assignment, task) {
+        if(task.done || assignment[task.product]!==task.from || assignment.includes(task.to))throw new Error('La ubicación cambió o el destino está ocupado.');
+        const next=[...assignment];next[task.product]=task.to;return next;
+      }
+
+      // Demo data: cleaning products start in the first five bays of the last aisle and the rest are shuffled over the ground level.
+      function demo() {
+        const random=rng(814), last=layout.spec.aisles.length-1, ground=layout.assignable.filter(slot=>layout.slots[slot].level===0);
+        const cleaningSlots=ground.filter(slot=>layout.slots[slot].aisle===last).slice(0,5), cleaning=products.filter(p=>p.family===2).map(p=>p.id);
+        const free=shuffle(ground.filter(slot=>!cleaningSlots.includes(slot)).slice(0,n-cleaning.length),random);
+        const assignment=products.map(p=>p.family===2 ? cleaningSlots[cleaning.indexOf(p.id)] : free.pop());
+        const orders=[];
+        for(let i=0;i<180;i++) {
+          const family=Math.floor(random()*families.length); const pool=shuffle(products.filter(p=>p.family===family).map(p=>p.id),random);
+          const items=pool.slice(0,2+Math.floor(random()*2));
+          if(random()<.38) { const candidates=products.filter(p=>p.family!==family && p.family!==2).map(p=>p.id); items.push(candidates[Math.floor(random()*candidates.length)]); }
+          orders.push({id:'DEMO-'+String(i+1).padStart(3,'0'),items:[...new Set(items)]});
+        }
+        return {assignment,orders};
+      }
+      function parseCSV(text) {
+        const source=text.replace(/^﻿/,'');const header=source.split(/\r?\n/,1)[0];const delimiter=header.includes(';')?';':',';
+        const rows=[];let row=[],field='',quoted=false;
+        for(let i=0;i<source.length;i++){const ch=source[i];if(ch==='"'){if(quoted && source[i+1]==='"'){field+='"';i++;}else quoted=!quoted;}else if(ch===delimiter && !quoted){row.push(field.trim());field='';}else if((ch==='\n'||ch==='\r') && !quoted){if(ch==='\r'&&source[i+1]==='\n')i++;row.push(field.trim());if(row.some(Boolean))rows.push(row);row=[];field='';}else field+=ch;}
+        if(quoted)throw new Error('Hay comillas sin cerrar en el archivo.');row.push(field.trim());if(row.some(Boolean))rows.push(row);
+        if(rows.length<2)throw new Error('Incluye la cabecera y al menos un pedido.');if(rows.length>5001)throw new Error('Este prototipo admite hasta 5.000 líneas por archivo.');
+        const columns=rows.shift().map(value=>value.toLowerCase());const orderColumn=columns.findIndex(v=>['order_id','pedido_id'].includes(v));const skuColumn=columns.findIndex(v=>['sku','producto_id'].includes(v));
+        if(orderColumn<0||skuColumn<0)throw new Error('La cabecera debe incluir order_id y sku.');const orders=new Map();
+        rows.forEach((cells,index)=>{const order=cells[orderColumn],sku=cells[skuColumn];if(!order||!sku)throw new Error('Faltan datos en la línea '+(index+2)+'.');const product=products.find(p=>p.code.toUpperCase()===sku.toUpperCase());if(!product)throw new Error('SKU desconocido en la línea '+(index+2)+': '+sku+'. Usa los SKU del catálogo demo.');if(!orders.has(order))orders.set(order,new Set());orders.get(order).add(product.id);});
+        return [...orders].map(([id,items])=>({id,items:[...items]}));
+      }
+
+      return { spec:transfer, layout, products, groups:families, slotName:layout.slotName, distance:layout.distance, zones:rules => compileRules(rules).zones,
+        demo, flow, cost, changed, valid, optimize, makeTasks, confirmTask, parseCSV };
     }
-    return {initial:[...initial],target:assignment,before,after:current,improvement:before ? (before-current)/before*100 : 0,moved:changed(initial,assignment),history,rules:JSON.parse(JSON.stringify(rules)),tasks:makeTasks(initial,assignment)};
+
+    return { ...createInstance(), createInstance, createLayout, DEFAULT_LAYOUT, CLEANING_ZONE };
   }
-  function makeTasks(initial,target) {
-    const current=[...initial],tasks=[];let safety=0;
-    while(changed(current,target)>0) {
-      if(++safety>200)throw new Error('No se pudo construir una secuencia de movimientos.');
-      let id=current.findIndex((slot,i)=>slot!==target[i] && !current.includes(target[i]));let temporary=false;
-      if(id<0){id=current.findIndex((slot,i)=>slot!==target[i]);temporary=true;}
-      const destination=temporary ? [31,...Array.from({length:31},(_,i)=>i)].find(slot=>!current.includes(slot)) : target[id];
-      if(destination===undefined)throw new Error('Se necesita una ubicación libre para ejecutar los movimientos.');
-      tasks.push({id:tasks.length+1,product:id,from:current[id],to:destination,temporary,done:false});current[id]=destination;
-    }
-    return tasks;
-  }
-  function confirmTask(assignment,task) {
-    if(task.done || assignment[task.product]!==task.from || assignment.includes(task.to))throw new Error('La ubicación cambió o el destino está ocupado.');
-    const next=[...assignment];next[task.product]=task.to;return next;
-  }
-  function parseCSV(text) {
-    const source=text.replace(/^\uFEFF/,'');const header=source.split(/\r?\n/,1)[0];const delimiter=header.includes(';')?';':',';
-    const rows=[];let row=[],field='',quoted=false;
-    for(let i=0;i<source.length;i++){const ch=source[i];if(ch==='"'){if(quoted && source[i+1]==='"'){field+='"';i++;}else quoted=!quoted;}else if(ch===delimiter && !quoted){row.push(field.trim());field='';}else if((ch==='\n'||ch==='\r') && !quoted){if(ch==='\r'&&source[i+1]==='\n')i++;row.push(field.trim());if(row.some(Boolean))rows.push(row);row=[];field='';}else field+=ch;}
-    if(quoted)throw new Error('Hay comillas sin cerrar en el archivo.');row.push(field.trim());if(row.some(Boolean))rows.push(row);
-    if(rows.length<2)throw new Error('Incluye la cabecera y al menos un pedido.');if(rows.length>5001)throw new Error('Este prototipo admite hasta 5.000 líneas por archivo.');
-    const columns=rows.shift().map(value=>value.toLowerCase());const orderColumn=columns.findIndex(v=>['order_id','pedido_id'].includes(v));const skuColumn=columns.findIndex(v=>['sku','producto_id'].includes(v));
-    if(orderColumn<0||skuColumn<0)throw new Error('La cabecera debe incluir order_id y sku.');const orders=new Map();
-    rows.forEach((cells,index)=>{const order=cells[orderColumn],sku=cells[skuColumn];if(!order||!sku)throw new Error('Faltan datos en la línea '+(index+2)+'.');const product=products.find(p=>p.code.toUpperCase()===sku.toUpperCase());if(!product)throw new Error('SKU desconocido en la línea '+(index+2)+': '+sku+'. Usa los SKU del catálogo demo.');if(!orders.has(order))orders.set(order,new Set());orders.get(order).add(product.id);});
-    return [...orders].map(([id,items])=>({id,items:[...items]}));
-  }
-  const api={products,groups,slotName,demo,flow,distance,cost,changed,valid,optimize,makeTasks,confirmTask,parseCSV};
+  const api = kbitEngine();
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.KbitEngine=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
 
