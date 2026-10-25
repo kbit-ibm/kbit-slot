@@ -969,10 +969,10 @@ input[type=file]::file-selector-button{margin-right:10px; padding:5px 10px; back
     health=null;base=null;checkedAt=Date.now();return null;
   }
   // Runs a job on the service and turns its target into a plan with the browser engine, which validates it again.
-  async function solve(initial,orders,rules,{solver='clasico',options={},onProgress,signal}={}){
+  async function solve(initial,orders,rules,{solver='clasico',options={},key='',onProgress,signal}={}){
     if(!await connect())throw new Error('El servidor de cálculo no responde. Inícialo con «python -m server».');
     if(signal?.aborted)throw abortError();
-    const job=await request(base+'/api/solve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({spec:E.spec,initial,orders,rules,solver,options})},15000);
+    const job=await request(base+'/api/solve',{method:'POST',headers:{'Content-Type':'application/json',...(key?{'X-Kbit-Key':key}:{})},body:JSON.stringify({spec:E.spec,initial,orders,rules,solver,options})},15000);
     const cancel=()=>fetch(base+'/api/jobs/'+job.id,{method:'DELETE'}).catch(()=>{});
     try{
       for(;;){
@@ -5018,7 +5018,7 @@ three/build/three.module.js:
   }
   function rulePanel(){return '<aside class="side-stack rules-stack"><section class="panel"><div class="panel-head"><div><h2>Las reglas de tu turno</h2><p>El plan se adapta a lo que puedes mover.</p></div>'+icon('spark')+'</div><form class="rule-form" id="rules-form"><div class="field-group"><div class="range-label"><label class="field-label" for="max-moves">Productos a reubicar, máximo</label><span class="range-value"><output id="moves-output" for="max-moves">'+state.rules.maxMoves+'</output><small>SKUs</small></span></div><input id="max-moves" name="maxMoves" type="range" min="2" max="12" step="2" value="'+state.rules.maxMoves+'"><p class="field-help">Cuenta productos que cambian de posición. Los pasos temporales se muestran por separado.</p></div><div class="field-group"><label class="check-label"><input type="checkbox" id="cleaning-zone" '+(state.rules.cleaningZone?'checked':'')+'><span>Mantener limpieza en pasillo D<small>Los productos de limpieza conservan su zona asignada.</small></span></label></div><div class="field-group pin-group"><label class="field-label" for="pin-search">Productos que no se mueven</label><input id="pin-search" type="search" placeholder="Buscar producto…" class="pin-search" aria-label="Buscar producto para fijar"><div class="pin-list">'+E.products.map(p=>'<label data-product-name="'+escape(p.name.toLowerCase())+'"><input type="checkbox" name="pinned" value="'+p.id+'" '+(state.rules.pinned.includes(p.id)?'checked':'')+'>'+escape(p.name)+'<span>'+E.slotName(state.assignment[p.id])+'</span></label>').join('')+'</div></div>'+engineGroup()+'<div class="rule-submit">'+submitBlock()+'</div></form></section><p class="quiet-note">'+icon('info')+'D08 queda reservado como espacio temporal. El plan incluye la secuencia para realizar los intercambios.</p></aside>';}
   const phases={voraz:'Mejora directa',recocido:'Recocido simulado',pulido:'Pulido final',listo:'Preparando tareas',cola:'En cola del servidor',inicio:'Inicio clásico',validacion:'Validando la propuesta',control:'Control por bloques'};
-  function progressText(){const p=planProgress,pct=Math.round((p?.progress||0)*100),phase=p?.phase==='qaoa'?'QAOA · bloque '+(p.block||0)+' de '+(p.blocks||'…'):phases[p?.phase]||'Calculando';
+  function progressText(){const p=planProgress,pct=Math.round((p?.progress||0)*100),phase=p?.phase==='qaoa'?'QAOA · bloque '+(p.block||0)+' de '+(p.blocks||'…'):p?.phase==='ibm'?'IBM · trabajo '+String(p.jobStatus||'').toLowerCase():phases[p?.phase]||'Calculando';
     return {pct,label:(p?phase:'Preparando cálculo')+' · '+pct+' %',note:p&&p.best!=null?'Mejor índice '+number(p.best)+(p.before!=null?' · antes '+number(p.before):''):'El cálculo corre aparte: puedes seguir usando la página.'};}
   // Where the plan is computed: this browser, or the Python service (classical or hybrid QAOA on a simulator).
   const engineSettings=()=>({mode:'local',backend:'aer_statevector',qubits:12,encoding:'swaps',window:3,...state.engine});
@@ -5028,29 +5028,31 @@ three/build/three.module.js:
     const option=(value,label,enabled=true)=>'<option value="'+value+'"'+(s.mode===value?' selected':'')+(enabled?'':' disabled')+'>'+label+'</option>';
     return '<div class="field-group engine-group"><label class="field-label" for="engine-mode">Motor de cálculo</label><select id="engine-mode" class="field-select">'+option('local','Navegador · clásico')+option('server','Servidor · clásico',online)+option('qaoa','Servidor · QAOA simulado',quantum)+'</select>'+
       '<div class="quantum-options"'+(s.mode==='qaoa'&&quantum?'':' hidden')+'><label class="field-label" for="quantum-backend">Simulador</label><select id="quantum-backend" class="field-select">'+backends.map(b=>'<option value="'+b.id+'"'+(b.id===backend?.id?' selected':'')+'>'+escape(b.label)+' (≤ '+b.maxQubits+' q)</option>').join('')+'</select>'+
-      '<p class="field-help">'+escape(backend?.description||'')+'</p>'+'<label class="field-label" for="quantum-encoding">Codificación</label><select id="quantum-encoding" class="field-select">'+[['swaps','Intercambios simultáneos'],['window','Ventanas · Húngaro'],['mixed','Mixta']].map(([value,label])=>'<option value="'+value+'"'+(s.encoding===value?' selected':'')+'>'+label+'</option>').join('')+'</select>'+
+      '<p class="field-help">'+escape(backend?.description||'')+'</p>'+(backend?.kind==='ibm'?'<label class="field-label" for="service-key">Clave del servicio</label><input id="service-key" type="password" class="pin-search" autocomplete="off" placeholder="KBIT_API_KEY" value="'+escape(serviceKey())+'"><p class="field-help">Hardware real: usa tiempo de QPU de tu cuenta IBM y puede esperar en cola. Recomendado según el diagnóstico: hasta 10 intercambios.</p>':'')+'<label class="field-label" for="quantum-encoding">Codificación</label><select id="quantum-encoding" class="field-select">'+[['swaps','Intercambios simultáneos'],['window','Ventanas · Húngaro'],['mixed','Mixta']].map(([value,label])=>'<option value="'+value+'"'+(s.encoding===value?' selected':'')+'>'+label+'</option>').join('')+'</select>'+
       (s.encoding!=='window'?'<div class="range-label"><label class="field-label" for="quantum-qubits">Intercambios por bloque</label><span class="range-value"><output id="qubits-output" for="quantum-qubits">'+Math.min(s.qubits,backend?.maxQubits||s.qubits)+'</output><small>qubits</small></span></div><input id="quantum-qubits" type="range" min="4" max="'+Math.min(backend?.maxQubits||29,29)+'" value="'+s.qubits+'">':'')+
       (s.encoding!=='swaps'?'<div class="range-label"><label class="field-label" for="quantum-window">Productos por ventana</label><span class="range-value"><output id="window-output" for="quantum-window">'+s.window+'</output><small>≈ '+s.window*(s.window+1)+' qubits</small></span></div><input id="quantum-window" type="range" min="2" max="'+(backend&&backend.maxQubits<20?3:4)+'" value="'+Math.min(s.window,backend&&backend.maxQubits<20?3:4)+'">':'')+'</div>'+
       '<p class="field-help" id="server-status">'+(online?'Servidor conectado · Qiskit '+escape(health.versions.qiskit||'—')+(health.versions['qiskit-aer']?' · Aer '+escape(health.versions['qiskit-aer']):''):window.KbitRemote?.checked()?'Servidor no disponible. Para usarlo: <code>python -m server</code>. <button type="button" class="link-button" data-action="probe-server">Reintentar</button>':'Servidor de cálculo sin comprobar. <button type="button" class="link-button" data-action="probe-server">Conectar</button>')+'</p></div>';
   }
+  function serviceKey(){try{return sessionStorage.getItem('kbit-service-key')||'';}catch{return '';}}
   function readEngine(){const s=engineSettings(),mode=$('engine-mode')?.value||'local';return {...s,mode,backend:$('quantum-backend')?.value||s.backend,encoding:$('quantum-encoding')?.value||s.encoding,qubits:Number($('quantum-qubits')?.value||s.qubits),window:Number($('quantum-window')?.value||s.window)};}
   function refreshEngine(){const group=document.querySelector('.engine-group');if(!group||busy)return;state.engine=readEngine();group.outerHTML=engineGroup();wireEngine();}
   function wireEngine(){
     $('engine-mode')?.addEventListener('change',refreshEngine);$('quantum-backend')?.addEventListener('change',refreshEngine);$('quantum-encoding')?.addEventListener('change',refreshEngine);
     $('quantum-window')?.addEventListener('input',event=>{$('window-output').textContent=event.target.value;});
+    $('service-key')?.addEventListener('change',event=>{try{sessionStorage.setItem('kbit-service-key',event.target.value);}catch{}});
     $('quantum-qubits')?.addEventListener('input',event=>{$('qubits-output').textContent=event.target.value;});
   }
   function computePlan(rules,signal){
     const s=engineSettings(),options={signal,onProgress:showProgress};
     if(s.mode==='local')return E.solveAsync(state.assignment,state.orders,rules,options);
-    return window.KbitRemote.solve(state.assignment,state.orders,rules,{...options,solver:s.mode==='qaoa'?'qaoa':'clasico',options:s.mode==='qaoa'?{backend:s.backend,qubits:s.qubits,encoding:s.encoding,window:s.window}:{}}).then(async plan=>{
+    return window.KbitRemote.solve(state.assignment,state.orders,rules,{...options,solver:s.mode==='qaoa'?'qaoa':'clasico',key:s.backend.startsWith('ibm:')?serviceKey():'',options:s.mode==='qaoa'?{backend:s.backend,qubits:s.qubits,encoding:s.encoding,window:s.window}:{}}).then(async plan=>{
       // A hybrid plan is shown next to the classical reference for the same rules, computed here in the worker.
       if(plan.solver?.encoding){const reference=await E.solveAsync(state.assignment,state.orders,rules,{signal});plan.solver.reference={after:reference.after,label:reference.solver.label};}
       return plan;});
   }
   function quantumRows(p){
     const s=p.solver;if(!s?.encoding)return '';const row=(label,value)=>'<div class="detail-row"><span>'+label+'</span><strong>'+value+'</strong></div>';
-    return row('Qubits por bloque',s.qubits+(s.noisy?' · con ruido':s.exact?'':' · aproximado'))+(s.maxIsaTwoQubitGates!=null?row('Puertas de 2 qubits en el chip',number(s.maxIsaTwoQubitGates))+row('Éxito estimado (ESP)',percentage((s.minEsp||0)*100)+'%'):'')+row('Bloques aceptados',s.acceptedBlocks+' de '+s.blocks)+row('Muestras factibles',percentage((s.feasibleShots||0)*100)+'%')+
+    return row('Qubits por bloque',s.qubits+(s.noisy?' · con ruido':s.exact?'':' · aproximado'))+(s.maxIsaTwoQubitGates!=null?row('Puertas de 2 qubits en el chip',number(s.maxIsaTwoQubitGates))+row('Éxito estimado (ESP)',percentage((s.minEsp||0)*100)+'%'):'')+(s.jobs?.length?row('Trabajos en IBM',s.jobs.length+' · '+number(s.quantumSeconds||0)+' s de QPU'):'')+row('Bloques aceptados',s.acceptedBlocks+' de '+s.blocks)+row('Muestras factibles',percentage((s.feasibleShots||0)*100)+'%')+
       row('Mejora de los bloques QAOA',number(s.qiskitGain)+' puntos')+(s.reference?row('Referencia clásica',number(s.reference.after)+(s.reference.after<p.after?' · mejor':s.reference.after>p.after?' · peor':' · igual')):'');
   }
   function submitBlock(){

@@ -8,18 +8,19 @@ import importlib.metadata
 import os
 from functools import cache
 import platform
+import secrets
 import subprocess
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import engine
 from .jobs import Jobs
-from .quantum import backends, hybrid as hybrid_solver, swap_qaoa
+from .quantum import backends, hybrid as hybrid_solver, ibm, swap_qaoa
 
 ROOT = Path(__file__).resolve().parent.parent
 # "null" is the origin of the app opened as a local file (dist/Kbit-Slot.html).
@@ -44,7 +45,7 @@ class SolveRequest(BaseModel):
 
 
 app = FastAPI(title='Kbit Slot · servicio de cálculo', version='1.0')
-app.add_middleware(CORSMiddleware, allow_origins=ORIGINS, allow_methods=['GET', 'POST', 'DELETE'], allow_headers=['Content-Type'])
+app.add_middleware(CORSMiddleware, allow_origins=ORIGINS, allow_methods=['GET', 'POST', 'DELETE'], allow_headers=['Content-Type', 'X-Kbit-Key'])
 queue = Jobs()
 
 
@@ -90,9 +91,19 @@ def hybrid(job, request, orders):
     return engine.plan_from(request.spec, request.initial, orders, request.rules, target, summary)
 
 
+def authorize_hardware(key):
+    """Hardware spends the account's QPU quota: only requests carrying the server's KBIT_API_KEY may use it."""
+    expected = os.environ.get('KBIT_API_KEY')
+    if not expected:
+        raise HTTPException(403, 'El hardware de IBM requiere definir KBIT_API_KEY en el servidor.')
+    if not key or not secrets.compare_digest(key, expected):
+        raise HTTPException(401, 'Clave del servicio incorrecta.')
+
+
 @app.get('/api/health')
 def health():
-    return {'status': 'ok', 'versions': versions(), 'solvers': ['clasico', 'qaoa'], 'backends': [b.public() for b in backends.catalog()]}
+    return {'status': 'ok', 'versions': versions(), 'solvers': ['clasico', 'qaoa'], 'backends': [b.public() for b in backends.catalog()],
+            'hardware': {'account': ibm.has_account() or ibm.local_mode(), 'keyConfigured': bool(os.environ.get('KBIT_API_KEY'))}}
 
 
 @app.get('/api/backends')
@@ -101,7 +112,9 @@ def list_backends():
 
 
 @app.post('/api/solve', status_code=202)
-def solve(request: SolveRequest):
+def solve(request: SolveRequest, x_kbit_key: str | None = Header(default=None)):
+    if request.solver == 'qaoa' and str(request.options.get('backend', '')).startswith('ibm:'):
+        authorize_hardware(x_kbit_key)
     orders = [order.model_dump() for order in request.orders]
     work = classical if request.solver == 'clasico' else hybrid
     job = queue.submit(request.solver, lambda job: work(job, request, orders), cancelled_error=(engine.Cancelled, hybrid_solver.Cancelled))

@@ -19,10 +19,10 @@
     health=null;base=null;checkedAt=Date.now();return null;
   }
   // Runs a job on the service and turns its target into a plan with the browser engine, which validates it again.
-  async function solve(initial,orders,rules,{solver='clasico',options={},onProgress,signal}={}){
+  async function solve(initial,orders,rules,{solver='clasico',options={},key='',onProgress,signal}={}){
     if(!await connect())throw new Error('El servidor de cálculo no responde. Inícialo con «python -m server».');
     if(signal?.aborted)throw abortError();
-    const job=await request(base+'/api/solve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({spec:E.spec,initial,orders,rules,solver,options})},15000);
+    const job=await request(base+'/api/solve',{method:'POST',headers:{'Content-Type':'application/json',...(key?{'X-Kbit-Key':key}:{})},body:JSON.stringify({spec:E.spec,initial,orders,rules,solver,options})},15000);
     const cancel=()=>fetch(base+'/api/jobs/'+job.id,{method:'DELETE'}).catch(()=>{});
     try{
       for(;;){
