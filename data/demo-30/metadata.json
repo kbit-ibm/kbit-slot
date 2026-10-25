@@ -1,0 +1,12 @@
+{
+  "synthetic": true,
+  "source": "Generado localmente; nombres del catálogo demo, sin BD externa",
+  "seed": 20261026,
+  "products": 30,
+  "orders": 500,
+  "lines": 2084,
+  "locations": 32,
+  "initialIndex": 39418,
+  "units": "u del plano, no metros",
+  "quantityUsedByObjective": false
+}

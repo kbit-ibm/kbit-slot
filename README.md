@@ -52,6 +52,13 @@ npm start
 
 Abre http://127.0.0.1:4173. La persistencia al abrir archivos locales depende de ese navegador. Regenera el archivo independiente con `npm run export` después de editar el proyecto.
 
+## Datos para los algoritmos
+
+Hay conjuntos sintéticos reproducibles de 8, 30 y **1.000 productos** con catálogo,
+ubicaciones, distribución inicial, pedidos y reglas. En **Importar pedidos →
+Importar operación completa (JSON)** carga `data/almacen-1000/request.json`.
+El CSV habitual importa solo pedidos del catálogo activo. Ver [datos y uso](data/README.md).
+
 ## Flujo para presentar
 
 Con un diseño guardado, la operación usa sus ubicaciones. En diseños Paralelo de hasta 2.000 ubicaciones puedes elegir **Completa** para optimizar sobre todas ellas, con hasta 150 SKUs de ejemplo (ver `docs/warehouse-operation.md`).
