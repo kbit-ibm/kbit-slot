@@ -5,7 +5,7 @@
   "description": "Prototipo de software para planificar y ejecutar reubicaciones de almacén.",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test tests/engine.test.cjs tests/layout.test.cjs",
+    "test": "node --test tests/engine.test.cjs tests/layout.test.cjs tests/operation.test.cjs",
     "export": "node export.mjs",
     "build": "node build.mjs"
   },

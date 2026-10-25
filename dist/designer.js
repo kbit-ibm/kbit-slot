@@ -82,5 +82,5 @@
     root.addEventListener('click',click);root.addEventListener('change',change);root.addEventListener('keydown',keydown);form?.addEventListener('input',input);form?.addEventListener('submit',save);fill();refresh();
     return {destroy(){if(form){clearTimeout(timer);read(false);}alive=false;scene?.destroy();root.removeEventListener('click',click);root.removeEventListener('change',change);root.removeEventListener('keydown',keydown);form?.removeEventListener('input',input);form?.removeEventListener('submit',save);}};
   }
-  window.KbitDesigner={page,overview,mount,saved:()=>stored?{...stored}:null};
+  window.KbitDesigner={page,overview,mount,plan,saved:()=>stored?{...stored}:null};
 })();

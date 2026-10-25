@@ -1,4 +1,25 @@
-# Verificación de las cuatro geometrías
+# Verificación de la operación sobre el diseño guardado
+
+- 41 pruebas aprobadas: 19 del motor, 13 de las geometrías y 9 del adaptador de operación.
+- Las cuatro geometrías generan direcciones físicas únicas y una muestra de hasta 64 ubicaciones. Las rutas parten y terminan en el estante correcto; las vías del grafo no atraviesan estantes en los casos probados.
+- Planes ejecutados por confirmaciones en pruebas: destinos libres, misma propuesta final y metadatos de sector correctos. Los bloques conservan el orden de las tareas.
+- El contrato físico se reconstruye con las mismas distancias y resultados para el Worker y el puente remoto. No se ejecutó el servicio Python/Qiskit durante esta tarea.
+- Prueba máxima de Paralelo: 921.600 ubicaciones teóricas, matriz 64 × 64 y menos de 2.000 nodos de circulación. No es una optimización de todo ese inventario.
+- Chevron con ángulos de 30/60°, pasillos anchos y un solo lado conserva la circulación dentro del edificio.
+- Navegador, Fishbone guardado: 210 estantes / 2.520 ubicaciones / 6 sectores, catálogo demo de 30 productos. La animación y las tareas comparten las direcciones físicas.
+- Confirmado un movimiento de prueba de Agua mineral desde S06 / P13-I-E01-N01-U01 hasta S02 / P03-D-E11-N01-U01. La ficha y el plano mostraron el destino y la confirmación persistió tras recargar.
+- Reproducción de los cinco movimientos pendientes a 3×: llegó al 100 % y mantuvo solo 1 de 6 tareas confirmadas. Reinicio volvió a la distribución confirmada.
+- Los controles de pausa, velocidad y reinicio están disponibles también en Tareas.
+- Plano 2D: geometría Fishbone y direcciones de productos, incluida la nueva ubicación confirmada. Móvil: 360 px de contenido en 360 px disponibles, en plano y en 3D.
+- Cambiar a una configuración mayor abrió una operación independiente; volver a 4 filas por zona recuperó la confirmación y las cinco tareas pendientes.
+- HTML independiente servido por HTTP: abrió la misma operación y las tareas persistidas. Ejemplo ampliado a 1.056 estantes / 12.672 ubicaciones: selección de producto enfocó S03 con detalle de estantes.
+- Build y exportación independiente regenerados. Sin errores de JavaScript en las comprobaciones descritas. Captura actual: docs/operation.png.
+
+El inventario sigue siendo sintético y acotado. El almacén representado es el diseño guardado; no hay sincronización con inventario real ni WMS.
+
+---
+
+# Verificación anterior de las cuatro geometrías
 
 - `npm test`: 32 pruebas aprobadas (19 del motor existente y 13 del diseñador).
 - Paralelo, Flying-V, Fishbone y Chevron tienen geometría física diferenciada en SVG y Three.js, con los mismos postes, bandejas, cajas, controles y selección.

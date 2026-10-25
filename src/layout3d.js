@@ -12,7 +12,7 @@ function create(host,options){
   const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.dampingFactor=.1;controls.minPolarAngle=.02;controls.maxPolarAngle=Math.PI/2.1;controls.minZoom=.4;controls.maxZoom=8;controls.rotateSpeed=.65;controls.zoomSpeed=.8;
   scene.add(new THREE.HemisphereLight(0xffffff,0x9a8e7b,2.5));const sun=new THREE.DirectionalLight(0xffffff,3);sun.position.set(-30,60,20);scene.add(sun);
   const geometry=new THREE.BoxGeometry(1,1,1),matrix=new THREE.Matrix4(),q=new THREE.Quaternion(),axis=new THREE.Vector3(0,1,0),ray=new THREE.Raycaster(),pointer=new THREE.Vector2();
-  let group=new THREE.Group(),pick=null,items=[],selection=null,config,sector,extent,view='iso',disposed=false,raf,down=null;
+  let group=new THREE.Group(),pick=null,items=[],selection=null,config,sector,extent,view='iso',disposed=false,raf,down=null,frameCallback=null;
   scene.add(group);
   const marker=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({color:C.accent,wireframe:true,depthTest:false}));marker.renderOrder=3;marker.visible=false;scene.add(marker);
   function batch(boxes,tint,opacity=1){
@@ -43,7 +43,7 @@ function create(host,options){
         for(const x of [-r.w/2,r.w/2])for(const z of [-r.d/2,0,r.d/2])posts.push(local(r,x,stats.height/2,z,.09,stats.height,.09));
         for(const level of levels){const y=.16+level*config.levelHeight;decks.push(local(r,0,y,0,r.w,.05,r.d));for(const x of [-r.w/2,r.w/2])bands.push(local(r,x,y+.035,0,.07,.12,r.d));cartons.push(local(r,0,y+config.levelHeight*.31,0,r.w*.75,config.levelHeight*.52,Math.min(config.bayWidth*.7,r.d*.6),'#b9a27a'));}
       }
-      batch(posts,C.steel);batch(decks,C.ink);batch(bands,C.accent);batch(cartons,C.rule);
+      batch(posts,C.steel);batch(decks,C.ink);batch(bands,C.accent);if(!options.inventory)batch(cartons,C.rule);
       // Picking follows the actual rotated runs, never overlapping sector bounding boxes.
       items=runs.map(r=>sectors.find(s=>s.id===r.sectorId));pick=batch(rows,C.accent,0);pick.material.depthWrite=false;
       const stride=Math.max(1,Math.ceil(sectors.length/100));sectors.filter((s,i)=>i%stride===0).forEach(s=>sectorLabel(s,stats.height));
@@ -60,7 +60,7 @@ function create(host,options){
           for(let p=0;p<Math.min(2,config.positions);p++)if((r.bay+r.aisle+l+p)%5!==0)boxes.push(local(r,0,y+config.levelHeight*.31,(p-(Math.min(2,config.positions)-1)/2)*d*.46,w*.75,config.levelHeight*.52,d/(Math.min(2,config.positions)+.6),(r.aisle+l)%3===0?'#b9a27a':C.rule));
         }
       }
-      batch(posts,C.steel);batch(beams,C.accent);batch(shelves,C.ink);batch(boxes,C.rule);
+      batch(posts,C.steel);batch(beams,C.accent);batch(shelves,C.ink);if(!options.inventory)batch(boxes,C.rule);
       pick=batch(items.map(r=>({...r,y:stats.height/2,h:stats.height})),C.accent,0);
       // Keep the picking volumes transparent but raycastable.
       if(pick)pick.material.depthWrite=false;
@@ -78,15 +78,16 @@ function create(host,options){
   }
   const onDown=e=>{down=[e.clientX,e.clientY];};
   const hitAt=e=>{const rect=renderer.domElement.getBoundingClientRect();pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);ray.setFromCamera(pointer,camera);return pick&&ray.intersectObject(pick)[0];};
-  const onUp=e=>{const start=down;down=null;if(!start||Math.hypot(e.clientX-start[0],e.clientY-start[1])>6)return;const hit=hitAt(e);if(hit&&hit.instanceId!==undefined){const item=items[hit.instanceId];if(item.aStart!==undefined)options.onSector?.(item.id);else{select(item.id);options.onRack?.(item);}}};
+  const onUp=e=>{const start=down;down=null;if(!start||Math.hypot(e.clientX-start[0],e.clientY-start[1])>6)return;const hit=hitAt(e);if(options.onRay?.(ray))return;if(hit&&hit.instanceId!==undefined){const item=items[hit.instanceId];if(item.aStart!==undefined)options.onSector?.(item.id);else{select(item.id);options.onRack?.(item);}}};
   const onMove=e=>{if(!down)renderer.domElement.style.cursor=hitAt(e)?'pointer':'grab';};
   renderer.domElement.addEventListener('pointerdown',onDown);renderer.domElement.addEventListener('pointerup',onUp);renderer.domElement.addEventListener('pointermove',onMove);
   const observer=new ResizeObserver(()=>{resize();draw();});observer.observe(host);
   // Render on demand. Orbit damping keeps a short animation alive after interaction.
   let frames=0;
   function draw(){if(disposed)return;frames=24;if(!raf)raf=requestAnimationFrame(tick);}
-  function tick(){raf=null;if(disposed)return;controls.update();renderer.render(scene,camera);if(--frames>0&&!raf)raf=requestAnimationFrame(tick);}
+  function tick(time){raf=null;if(disposed)return;controls.update();if(frameCallback?.(time))frames=24;renderer.render(scene,camera);if(--frames>0&&!raf)raf=requestAnimationFrame(tick);}
   controls.addEventListener('change',draw);
-  return {update,select,preset:fit,zoom(factor){camera.zoom=Math.max(.4,Math.min(8,camera.zoom*factor));camera.updateProjectionMatrix();draw();},destroy(){disposed=true;cancelAnimationFrame(raf);observer.disconnect();controls.dispose();renderer.domElement.removeEventListener('pointerdown',onDown);renderer.domElement.removeEventListener('pointerup',onUp);renderer.domElement.removeEventListener('pointermove',onMove);cleanup();geometry.dispose();marker.material.dispose();renderer.dispose();renderer.forceContextLoss();renderer.domElement.remove();}};
+  return {update,select,preset:fit,resize,add:object=>{scene.add(object);draw();},invalidate:draw,onFrame:fn=>{frameCallback=fn;draw();},focusSector(id){const s=M.sectors(config).find(s=>s.id===id),stats=M.summary(config);if(stats.overview&&sector!==(s?.id||null)){update(config,s?.id||null);return;}extent=s?{x:s.x,z:s.z,w:s.width+5,d:s.depth+6}:{x:0,z:0,w:stats.width,d:stats.depth};fit(view);draw();},zoom(factor){camera.zoom=Math.max(.4,Math.min(8,camera.zoom*factor));camera.updateProjectionMatrix();draw();},destroy(){disposed=true;cancelAnimationFrame(raf);observer.disconnect();controls.dispose();renderer.domElement.removeEventListener('pointerdown',onDown);renderer.domElement.removeEventListener('pointerup',onUp);renderer.domElement.removeEventListener('pointermove',onMove);cleanup();geometry.dispose();marker.material.dispose();renderer.dispose();renderer.forceContextLoss();renderer.domElement.remove();}};
 }
 window.KbitLayout3D={create};
+export {create as createLayoutScene};

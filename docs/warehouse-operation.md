@@ -1,0 +1,29 @@
+# Operación sobre el almacén guardado
+
+Guardar un diseño aplica su geometría a Mi almacén, Preparar turno, el plano, la animación y las tareas. Los cuatro tipos usan el mismo renderizador de estantes y las direcciones `Pxx-I/D-Exx-Nxx-Uxx`. Las cajas de operación representan productos de demostración, en lugar de la ocupación decorativa del diseñador.
+
+## Un plan para visualizar y ejecutar
+
+La primera simulación calcula y guarda un plan con el motor activo. Tareas presenta ese mismo plan, con sector y dirección completa de origen y destino. Los bloques agrupan movimientos consecutivos del mismo sector de origen; no se ordenan alfabéticamente si eso rompe las dependencias. Un traslado entre sectores muestra ambos y puede requerir volver a un sector anterior.
+
+Solo el siguiente movimiento se puede confirmar. La confirmación actualiza la ubicación local y se conserva al recargar. Reproducir, pausar, acelerar o reiniciar la animación no confirma tareas. Si ya hay movimientos confirmados, la reproducción parte de la distribución actual y muestra los pendientes; un turno completado se puede volver a visualizar desde su distribución inicial.
+
+## Circulación compartida
+
+`operation-model.js` construye un grafo con centros de pasillos, cruces, accesos diagonales y conectores periféricos según la geometría. Las ubicaciones se conectan al centro de su pasillo. Dijkstra calcula los recorridos entre los nodos activos; la función de distancia añade el acceso al estante y la diferencia de altura. La animación sale del estante, recorre esas vías y entra en el destino.
+
+El motor recibe esas distancias y direcciones mediante `kind: 'physical'`. El plano SVG y la escena 3D comparten el mismo modelo paramétrico. En almacenes grandes la escena general conserva la representación por sectores; seleccionar un producto permite explorar su sector.
+
+## Datos y límites
+
+- Hasta 30 productos y pedidos sintéticos del catálogo existente, colocados de forma reproducible en direcciones del diseño. Un almacén muy pequeño usa menos productos y conserva una ubicación libre.
+- Hasta 64 ubicaciones candidatas repartidas por sectores. La matriz y el cálculo no abarcan toda la capacidad teórica del edificio.
+- El diseño completo sigue visible. Mostrar cientos de miles de ubicaciones posibles no demuestra que se hayan optimizado esos inventarios.
+- No hay importación de inventario real, cantidades, equipos, sentidos de circulación, tráfico ni restricciones de peso o seguridad. La importación CSV existente cambia pedidos del catálogo demo.
+- Las rutas son una representación del modelo configurado, sin calibración física ni ejecución en un WMS.
+
+## Persistencia por diseño
+
+El diseño conserva su clave existente. La operación usa `kbit-slot-operation:<huella>`; la huella depende de geometría, cantidades y medidas. Renombrar el almacén conserva su operación. Cambiar su geometría o medidas abre otra operación, sin aplicar tareas antiguas a ubicaciones incompatibles. Volver a la misma configuración recupera sus confirmaciones. El ejemplo heredado conserva `kbit-slot-demo-v1` por separado.
+
+Todo se guarda en `localStorage`, por navegador y origen. No se sincroniza entre colaboradores. Para pasar al producto industrial, la siguiente etapa es asociar inventario real y resolver subproblemas por sectores con un presupuesto de traslados; el uso cuántico requiere una evaluación separada.

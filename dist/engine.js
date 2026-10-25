@@ -19,6 +19,7 @@
     function shuffle(array, random) { for(let i=array.length-1;i>0;i--) { const j=Math.floor(random()*(i+1)); [array[i],array[j]]=[array[j],array[i]]; } return array; }
 
     function createLayout(spec = {}) {
+      if(spec.kind==='physical')return createPhysicalLayout(spec);
       const layout = { ...DEFAULT_LAYOUT, ...spec };
       const { aisles, bays, levels, aisleSpacing, levelCost } = layout;
       if(!Array.isArray(aisles) || !aisles.length || aisles.some(a => typeof a !== 'string' || !a) || new Set(aisles).size !== aisles.length) throw new Error('El plano necesita al menos un pasillo y nombres de pasillo únicos.');
@@ -43,6 +44,22 @@
         slots, slotCount:slots.length, distances, reserved, assignable:slots.map(slot => slot.index).filter(index => !reserved.includes(index)),
         slotName:index => slots[index]?.name, slotIndex, distance:(a, b) => distances[a][b]
       };
+    }
+
+    // A bounded set of real warehouse locations. Distances are supplied by the circulation adapter,
+    // so the solver and its Worker use the same physical addresses as tasks and animation.
+    function createPhysicalLayout(spec) {
+      const {slots:input,distances:matrix}=spec;
+      if(!Array.isArray(input)||input.length<2||input.length>128||!Array.isArray(matrix)||matrix.length!==input.length)throw new Error('El plano físico necesita entre 2 y 128 ubicaciones y su matriz de distancias.');
+      const aisles=[...new Set(input.map(s=>s.aisleName))],levels=Math.max(...input.map(s=>s.level))+1;
+      if(aisles.some(a=>typeof a!=='string'||!a)||!isCount(levels,1))throw new Error('Revisa los pasillos y niveles del plano físico.');
+      const slots=input.map((s,index)=>{if(typeof s.name!=='string'||!s.name||!isCount(s.level,0)||![s.x,s.y,s.z].every(Number.isFinite))throw new Error('La ubicación física '+index+' no es válida.');return {...s,index,aisle:aisles.indexOf(s.aisleName)};});
+      if(new Set(slots.map(s=>s.name)).size!==slots.length)throw new Error('Las direcciones físicas no pueden repetirse.');
+      const distances=matrix.map(row=>{if(!Array.isArray(row)||row.length!==slots.length||row.some(d=>!Number.isFinite(d)||d<0))throw new Error('La matriz física contiene distancias inválidas.');return Float64Array.from(row);});
+      for(let i=0;i<slots.length;i++)for(let j=0;j<slots.length;j++)if((i===j&&distances[i][j]!==0)||Math.abs(distances[i][j]-distances[j][i])>1e-6)throw new Error('Las distancias físicas deben ser simétricas y tener diagonal cero.');
+      const byName=new Map(slots.map(s=>[s.name,s.index])),reserved=[...new Set((spec.reserved||[]).map(name=>{if(!byName.has(name))throw new Error('La reserva física no existe.');return byName.get(name);} ))];
+      const normalized={kind:'physical',version:1,aisles,levels,slots:slots.map(({index,aisle,...s})=>s),distances:distances.map(row=>Array.from(row)),reserved:reserved.map(i=>slots[i].name)};
+      return {spec:normalized,slots,slotCount:slots.length,distances,reserved,assignable:slots.map(s=>s.index).filter(i=>!reserved.includes(i)),slotName:i=>slots[i]?.name,slotIndex:name=>byName.get(name),distance:(a,b)=>distances[a][b]};
     }
 
     function createInstance(spec = {}) {

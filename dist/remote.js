@@ -1,7 +1,7 @@
 /* Client for the optional Python calculation service (server/). Without it the page keeps using the browser engine. */
 (function () {
   'use strict';
-  const E=window.KbitEngine,LOCAL_SERVICE='http://127.0.0.1:8000';
+  const LOCAL_SERVICE='http://127.0.0.1:8000';
   let base=null,health=null,checkedAt=0;
   const abortError=()=>Object.assign(new Error('Cálculo cancelado.'),{name:'AbortError'});
   const pause=(ms,signal)=>new Promise((resolve,reject)=>{const timer=setTimeout(resolve,ms);signal?.addEventListener('abort',()=>{clearTimeout(timer);reject(abortError());},{once:true});});
@@ -19,7 +19,7 @@
     health=null;base=null;checkedAt=Date.now();return null;
   }
   // Runs a job on the service and turns its target into a plan with the browser engine, which validates it again.
-  async function solve(initial,orders,rules,{solver='clasico',options={},key='',onProgress,signal}={}){
+  async function solve(initial,orders,rules,{solver='clasico',options={},key='',onProgress,signal,engine:E=window.KbitEngine}={}){
     if(!await connect())throw new Error('El servidor de cálculo no responde. Inícialo con «python -m server».');
     if(signal?.aborted)throw abortError();
     const job=await request(base+'/api/solve',{method:'POST',headers:{'Content-Type':'application/json',...(key?{'X-Kbit-Key':key}:{})},body:JSON.stringify({spec:E.spec,initial,orders,rules,solver,options})},15000);

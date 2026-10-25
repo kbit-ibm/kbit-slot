@@ -2,9 +2,9 @@
 
 Prototipo personal de software para explorar un almacén en 3D, simular reubicaciones y ejecutar tareas. Proyecto separado de `kbit-ibm/demo`; el repositorio original no se modifica.
 
-![Vista interactiva de Kbit Slot](docs/preview.jpg)
+![Operación sobre el almacén guardado](docs/operation.png)
 
-**Demostración rápida:** abre `dist/Kbit-Slot.html` en un navegador y entra en **Diseñar almacén**. Elige una plantilla, ajusta estantes y niveles y guarda el diseño para verlo en **Mi almacén**. La simulación de reubicaciones sigue disponible como operación de ejemplo.
+**Demostración rápida:** abre `dist/Kbit-Slot.html` en un navegador y entra en **Diseñar almacén**. Elige una plantilla, ajusta estantes y niveles y guarda el diseño para verlo en **Mi almacén**. La animación, el plano y las tareas utilizan ese mismo almacén, con un catálogo de demostración colocado en sus direcciones.
 
 ## Diseñador de almacenes
 
@@ -23,7 +23,7 @@ El modelo representa una sola planta. Las cajas ilustran el espacio: no represen
 
 Los diseños anteriores (Compacto, Distribución, Fulfillment y Estantería alta) se abren automáticamente como **Paralelo** con sus medidas y direcciones originales. Ver [modelo de las cuatro geometrías](docs/warehouse-layouts.md).
 
-El diseño personalizado se guarda separado de la operación de ejemplo de 30 SKUs / 32 posiciones. Todavía no alimenta el motor de reubicación; esta distinción aparece en la interfaz.
+El diseño guardado alimenta la operación: se colocan hasta 30 SKUs de demostración en una muestra de hasta 64 direcciones reales. El motor calcula distancias por las vías de esa geometría y genera el mismo plan para la animación y las tareas. Cada configuración conserva sus pedidos, plan y confirmaciones por separado. Ver [operación sobre el diseño guardado](docs/warehouse-operation.md).
 
 ## Experiencia visual 3D
 
@@ -35,10 +35,10 @@ El diseño personalizado se guarda separado de la operación de ejemplo de 30 SK
 - Activa **Demanda** para colorear los productos por presencia en pedidos; la leyenda muestra la escala.
 - Filtra por familia para destacar un grupo de productos.
 - Reproduce, pausa, acelera (1×, 2×, 3×) y reinicia la simulación. Las cajas recorren una secuencia ilustrativa de movimientos, incluidos los pasos temporales.
-- Cambia a **Plano** para volver a las 32 ubicaciones en 2D.
+- Cambia a **Plano** para ver los productos sobre la geometría guardada y consultar sus direcciones completas.
 - Alterna **Tema oscuro / Tema claro** desde la cabecera; la escena 3D usa los mismos colores del tema y la preferencia se guarda en el navegador.
 
-La reproducción es una demostración visual: no confirma movimientos ni modifica las tareas del turno. La geometría 3D es ilustrativa y los recorridos no representan un sistema físico de navegación. La experiencia está centrada en el frontend, con datos y estado locales. Requiere WebGL para 3D; el plano 2D permite continuar cuando WebGL no está disponible.
+La reproducción usa las rutas del grafo de circulación del diseño guardado; no confirma movimientos ni modifica las tareas del turno. Las tareas se agrupan por sector y solo se confirma el siguiente paso permitido. La geometría y las rutas son un modelo ilustrativo, sin equipos, tráfico ni restricciones de un almacén físico. La experiencia está centrada en el frontend, con datos y estado locales. Requiere WebGL para 3D; el plano 2D permite continuar cuando WebGL no está disponible.
 
 ## Abrir
 
@@ -54,10 +54,10 @@ Abre http://127.0.0.1:4173. La persistencia al abrir archivos locales depende de
 
 ## Flujo para presentar
 
-1. **Mi almacén:** 30 productos, 32 posiciones y 180 pedidos sintéticos precargados. Selecciona una ubicación para inspeccionar el producto.
-2. **Preparar turno:** limita a 2–12 productos reubicados, fija productos y conserva la zona de limpieza en el pasillo D.
+1. **Diseñar almacén:** elige una de las cuatro geometrías, ajusta sus medidas y guarda. **Mi almacén** coloca hasta 30 productos de ejemplo en direcciones de ese diseño.
+2. **Preparar turno:** limita los productos reubicados, fija productos y, si lo necesitas, conserva los productos de limpieza en sus sectores actuales.
 3. **Generar plan:** calcula una propuesta (con barra de avance y opción de cancelar), compara la distribución actual con la propuesta y revisa los productos reubicados.
-4. **Tareas:** confirma movimientos en secuencia. Los destinos están libres y D08 actúa como reserva para intercambios temporales.
+4. **Tareas:** reproduce el mismo plan sobre tu almacén, revisa los bloques por sector y confirma movimientos en secuencia. Los destinos están libres; la reserva temporal tiene una dirección del diseño.
 5. **Historial:** el turno completado se registra. Recarga para verificar que tu estado se conserva.
 
 En Ayuda puedes reiniciar la demostración. La importación CSV acepta `order_id,sku` o `pedido_id,producto_id`, con separador coma o punto y coma. Cada pedido puede ocupar varias filas; los SKUs corresponden al catálogo de ejemplo (SKU-001 a SKU-030). Se admiten hasta 2 MB y 5.000 filas. Se puede descargar un CSV de ejemplo, el catálogo y las tareas.
@@ -66,13 +66,13 @@ En Ayuda puedes reiniciar la demostración. La importación CSV acepta `order_id
 
 - Prototipo funcional de una aplicación web, sin servidor de negocio. El archivo independiente y la carpeta `dist/` ya incluyen el motor visual empaquetado; no requieren instalar paquetes para usarlos.
 - Los cálculos son reales sobre los pedidos activos. El motor clásico parte de una búsqueda voraz (intercambios y movimientos a posiciones libres), la refina con 32 cadenas de recocido simulado y pule el mejor resultado. Evalúa cada movimiento de forma incremental, corre en un Web Worker para no congelar la página y con la misma semilla da el mismo plan. En pruebas con pedidos sintéticos queda en promedio a menos de 0,4 % de referencias casi óptimas (la búsqueda voraz sola, entre 3 % y 11 %), en unos 160 ms. No garantiza el óptimo global.
-- El índice suma, una vez por par, la frecuencia de aparición conjunta × distancia por pasillos. Los cruces entre pasillos se realizan por los extremos. Las distancias se expresan en unidades del plano, sin calibración a metros.
+- El índice suma, una vez por par, la frecuencia de aparición conjunta × distancia por pasillos. En el diseño guardado, las distancias proceden de sus pasillos, cruces y vías diagonales, más acceso al estante y diferencia de altura, según las medidas configuradas. El ejemplo heredado de 4 × 8 conserva sus distancias en unidades del plano.
 - El límite cuenta SKUs cuya ubicación final cambia; una reubicación puede necesitar pasos temporales adicionales.
-- D08 queda reservado para movimientos temporales. Los productos de limpieza se mantienen en D cuando la regla está activa.
+- Una dirección de la muestra queda reservada para movimientos temporales. La regla de limpieza conserva cada producto en su sector actual. En el ejemplo heredado se mantienen D08 y la zona D.
 - El porcentaje es mejora del índice, no ahorro de tiempo, dinero o productividad comprobado.
 - Catálogo, plano y pedidos iniciales son sintéticos. La importación cambia solo los pedidos, manteniendo el plano y el catálogo demo.
 - Persistencia en `localStorage`, separada por navegador y origen. Los archivos CSV se procesan localmente. El historial y las confirmaciones no se sincronizan con otros usuarios.
-- No incluye WMS, inventario de cantidades, autenticación, lectores QR ni Qiskit. Esas integraciones son trabajo posterior.
+- No incluye WMS, inventario de cantidades, autenticación ni lectores QR. El servicio opcional de Qiskit se describe abajo; no convierte la muestra visual en una optimización de todo un edificio industrial.
 
 ## Servicio de cálculo y Qiskit (opcional)
 
@@ -95,7 +95,10 @@ Abre http://127.0.0.1:8000. Desde el archivo independiente, pulsa «Conectar» b
 - `dist/app.js`: navegación, reglas, tareas, importación, exportación e historial.
 - `dist/visual-ui.js` y `dist/visual.css`: controles, selección, capas y reproductor visual.
 - `src/warehouse3d.js`: escena Three.js, interacción, cámara, iluminación y animación.
-- `src/layout3d.js`: vista configurable con geometría instanciada, selección y detalle por sectores.
+- `src/layout3d.js`: vista compartida del diseño, con geometría instanciada, selección y detalle por sectores.
+- `src/operation3d.js`: productos y rutas animadas sobre esa misma vista.
+- `dist/operation-model.js`: ubicaciones activas, grafo de circulación, distancias y agrupación de tareas.
+- `dist/operation-ui.js`: plano de productos, bloques por sector y datos del almacén guardado.
 - `dist/layout-model.js`: validación, capacidad, geometría lógica, sectores y direcciones.
 - `dist/designer.js` y `dist/designer.css`: configurador, plano 2D y persistencia del diseño.
 - `dist/warehouse3d.js`: motor visual empaquetado para uso sin conexión.
@@ -105,6 +108,7 @@ Abre http://127.0.0.1:8000. Desde el archivo independiente, pulsa «Conectar» b
 - `dist/remote.js`: cliente del servicio de cálculo.
 - `server/`: servicio FastAPI, puente al motor (`bridge.cjs`), simuladores y QAOA (`quantum/`), y sus pruebas (`tests/`).
 - `tests/layout.test.cjs`: capacidad, direcciones únicas, cobertura de sectores y límites del modelo.
+- `tests/operation.test.cjs`: adaptación de las cuatro geometrías, rutas transitables, planes ejecutables, aislamiento de estados y tamaño acotado.
 
 Ejecutar verificaciones:
 

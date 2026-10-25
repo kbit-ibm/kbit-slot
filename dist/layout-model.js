@@ -54,8 +54,8 @@
           add(wing*c.aisles+a,side,b,sign*start+nx*u+tx*v,-a*step/cs+nz*u+tz*v,rotation,wing===0?'left':'right',a);
         }
       }
-      const bounds=boundsOf(all);width=bounds.width;depth=bounds.depth;zShift=-4-bounds.z;
-      road('central',{x:0,z:bounds.maxZ+1},{x:0,z:bounds.minZ-1});
+      const bounds=boundsOf(all),circulationFront=Math.max(bounds.maxZ,start*Math.tan(theta)+1),circulationBack=Math.min(bounds.minZ,-(c.aisles-1)*step/cs-sn*(length+.5)-.5);width=bounds.width;depth=circulationFront-circulationBack;zShift=-4-(circulationFront+circulationBack)/2;
+      road('central',{x:0,z:circulationFront+1},{x:0,z:circulationBack-1});
     }else{
       const fish=c.geometry==='fishbone';width=(fish?2:1)*c.aisles*step;depth=fish?Math.max(length,2*c.aisles*step):length;
       const front=depth/2,back=-depth/2,slope=depth*c.vDepth/100/(width/2),clear=(c.aisleWidth/2+.18)*Math.sqrt(1+slope*slope);

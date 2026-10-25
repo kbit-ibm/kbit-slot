@@ -116,14 +116,20 @@ Todos los pasos respetan las reglas; el plan final se recalcula completo y se va
 
 Calibración (4 conjuntos de pedidos, 4 límites de movimientos, 3 semillas): brecha media de 0,05 % frente a referencias de corridas largas, en ~150 ms. En casos que no se usaron para calibrar, con 1 y 2 niveles: 0,13 % y 0,38 % (búsqueda voraz: 3 % y 11 %), nunca peor que la búsqueda voraz.
 
-## Qué cambiar en la interfaz para otro plano
+## Plano físico del diseño guardado
 
-El motor ya acepta otros planos; estas partes de la interfaz todavía asumen 4 × 8 × 1:
+La variante rectangular anterior sigue disponible para el ejemplo heredado. La operación sobre el diseño guardado usa:
 
-- `dist/app.js:11`: valida estados guardados con 30 productos.
-- `dist/app.js:21`, `:37` y `:43`: textos con 30 productos, 4 pasillos y 32 posiciones.
-- `dist/app.js:23-24`: el plano 2D usa `Array(32)`, `'ABCD'`, 8 filas y `slot===31` para la reserva. Usa `layout.slots`, `layout.reserved` y `slotName`.
-- `dist/app.js:85`: la ficha de posición libre compara con `31`.
-- `src/warehouse3d.js:45`: `position(slot)` calcula pasillo y fila con 8 posiciones. Para niveles, usa `layout.slots[slot].level` en la altura.
-- `src/warehouse3d.js:48-65`: dibuja 4 pasillos, 8 posiciones y 9 montantes por lado.
-- La casilla «Mantener limpieza en pasillo D» escribe `cleaningZone`. Para hacerla configurable, guarda `rules.zones`.
+```js
+const operation = KbitOperation.create(configuracionGuardada);
+const motor = operation.engine;
+const { assignment, orders } = operation.demo();
+const plan = operation.decorate(await motor.solveAsync(assignment, orders, reglas));
+const ruta = operation.route(plan.tasks[0].from, plan.tasks[0].to);
+```
+
+El contrato serializable es `{ kind:'physical', version:1, slots, distances, reserved }`. Cada slot incluye `name`, `aisleName`, `level` (desde cero), `x,y,z` y los metadatos del adaptador como `sector`. La matriz debe ser cuadrada, finita, no negativa, simétrica y con diagonal cero. Las direcciones no pueden repetirse y las reservas deben existir. El motor admite entre 2 y 128 slots físicos; el adaptador actual limita la muestra a 64.
+
+El Worker y el puente remoto reconstruyen la misma instancia desde `motor.spec`; nunca deben sustituirla por el plano rectangular por defecto. `dist/remote.js` recibe la instancia activa mediante la opción `engine` y valida la propuesta con ella.
+
+`decorate` añade `layoutKey` al plan y `fromSector/toSector` a cada tarea. `blocks` agrupa tareas consecutivas por sector de origen, manteniendo su orden y dependencias. Ver [operación sobre el diseño](warehouse-operation.md).

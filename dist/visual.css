@@ -100,6 +100,8 @@
 .task-scene{margin-bottom:18px}
 .task-scene .warehouse3d-stage{height:380px}
 .task-scene .scene-player,.task-scene .scene-family-legend{display:none}
+.operation-task-scene .scene-player{display:block}
+.operation-task-scene .scene-family-legend{display:flex}
 
 @media (max-width:700px){
   .warehouse3d-stage{height:400px}
