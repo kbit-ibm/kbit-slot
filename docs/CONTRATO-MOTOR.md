@@ -78,9 +78,37 @@ Un pasillo, nivel o posición que no existe en el plano produce un error con el 
 | `initial`, `target` | Distribución de partida y propuesta. |
 | `before`, `after`, `improvement` | Índice antes, después y mejora en %. |
 | `moved` | Productos cuya posición final cambia. |
-| `tasks` | Movimientos en orden: `{ id, product, from, to, temporary, done }`. Un ciclo usa una posición libre, primero las reservadas y dentro de la zona del producto si se puede. |
+| `tasks` | Movimientos en orden: `{ id, product, from, to, temporary, done }`. Ver [secuencia de tareas](#secuencia-de-tareas). |
 | `rules`, `history` | Copia de las reglas y evolución del índice. |
-| `solver` | Método y registro: `id` (`voraz+recocido` o `voraz`), `label`, `seed`, `iterations`, `evaluations`, `milliseconds`, `greedy` (índice de la búsqueda voraz) y `timeLimited`. |
+| `solver` | Método y registro: `id` (`voraz+recocido` o `voraz`), `label`, `seed`, `iterations`, `evaluations`, `milliseconds`, `greedy` (índice de la búsqueda voraz), `timeLimited` y `trace`: cada nuevo mejor índice con `{ evaluations, index, phase }` (hasta 200 puntos). |
+| `bound` | Cota inferior demostrada `{ value, method, lambda, gap }`: ningún plan que cumpla las reglas baja de `value`, y `gap` = (`after` − `value`) / `value` × 100 es la distancia máxima al óptimo. `null` si se calculó con `bound: false` o en `planFrom` sin cota del solver externo. |
+| `metrics` | Métricas operativas, ver [abajo](#métricas-operativas). |
+
+### Secuencia de tareas
+
+El número de pasos es el mínimo: uno por producto reubicado más uno por ciclo (productos que ocupan el destino del otro). Entre los movimientos con destino libre, el siguiente empieza lo más cerca posible de donde terminó el anterior. Un ciclo se rompe con una posición libre (primero las reservadas y dentro de la zona del producto), eligiendo el producto y la posición que menos recorrido agregan. Después, un paso *or-opt* recoloca tareas sueltas mientras el recorrido en vacío baje y cada tarea siga encontrando su producto en el origen y el destino libre (hasta 200 tareas).
+
+En la demo, frente a la secuencia anterior (por número de producto): 329 → 292 u de recorrido del montacargas con 12 movimientos permitidos y 653 → 589 u sin límite, con los mismos pasos.
+
+### Métricas operativas
+
+`metrics` usa la unidad del plano (`unit`: `u` = pasos del plano rectangular, `m` = metros del diseño guardado):
+
+| Campo | Significado |
+|---|---|
+| `relocation` | `{ tasks, temporary, loaded, empty, total }`: tareas, pasos temporales y recorrido del montacargas con carga, en vacío entre tareas y total. |
+| `picking` | `{ before, after, change, fromPacking, orders }`: recorrido medio por pedido antes y después. Con punto de empaque (`fromPacking`), ida y vuelta desde empaque: el plano rectangular lo ubica al frente del pasillo A y el modo completo en el cruce del frente del primer pasillo. Sin empaque (diseños en muestra), el recorrido entre las ubicaciones del pedido. Exacto hasta 6 ubicaciones por pedido; vecino más cercano por encima. |
+| `bestPairs`, `worstPairs` | Pares con más ganancia (pedidos juntos × reducción de distancia) y los que más se alejan. |
+| `products` | Los 5 productos con más ganancia en el índice. |
+
+### Cota inferior
+
+`lowerBound(inicial, pedidos, reglas)` devuelve la mayor de dos cotas válidas:
+
+1. **Gilmore–Lawler con reglas.** Los productos fijos son exactos (sus pares son una constante y sus pares con un producto movible, un costo conocido). Para cada producto movible y posición, la mitad del producto escalar mínimo entre sus flujos (de mayor a menor) y las distancias de esa posición a las otras libres (de menor a mayor); la asignación más barata de esos costos (algoritmo Húngaro rectangular) es una cota. Las zonas limitan las posiciones y el máximo de movimientos entra con un dual lagrangiano: máx. sobre λ ≥ 0 de LAP(costo + λ·movido) − λ·máximo.
+2. **Presupuesto de movimientos.** Con un máximo M, solo cambian los pares que tocan un producto movido, y cada uno puede, como mucho, acortarse hasta la distancia más corta que puede alcanzar. El índice baja como mucho la suma de los M mayores ahorros por producto.
+
+Con pocos productos libres la primera queda cerca del óptimo; con pocos movimientos, la segunda. Con casi todo libre, Gilmore–Lawler queda lejos (en la demo sin límite, brecha ≤ 50 %): ahí el motor exacto del servidor (`docs/QISKIT.md`) cierra la brecha en problemas pequeños. Tarda ~0,2 s en la demo y ~0,8 s en un diseño completo de 1.728 ubicaciones; corre en el Worker como fase `cota`.
 
 ## Cálculo
 
@@ -91,11 +119,12 @@ Un pasillo, nivel o posición que no existe en el plano produce un error con el 
 | `createSolver(inicial, pedidos, reglas, opciones)` | Solver por tramos: `step(ms)` devuelve el estado y `result()` el plan cuando `done` es verdadero. |
 | `deltaMove(distribución, flujos, producto, posición)` y `deltaSwap(distribución, flujos, a, b)` | Cambio del índice al mover a una posición vacía o intercambiar dos productos, en O(n). |
 | `describe(inicial, pedidos, reglas)` | El problema en JSON para solvers externos: distancias, flujos, posiciones permitidas por producto, fijos y máximo de movimientos. |
-| `planFrom(inicial, pedidos, reglas, propuesta, solver)` | Convierte una propuesta externa en plan. Rechaza la que no cumpla las reglas y recalcula el índice. |
+| `planFrom(inicial, pedidos, reglas, propuesta, solver)` | Convierte una propuesta externa en plan. Rechaza la que no cumpla las reglas y recalcula el índice. Si `solver.bound` trae una cota (la del MILP), se muestra como `bound`. |
+| `lowerBound(inicial, pedidos, reglas)` | Cota inferior del índice bajo las reglas, ver [arriba](#cota-inferior). |
 
 El servicio en Python (`server/`, ver `docs/QISKIT.md`) usa estas mismas funciones a través de `server/bridge.cjs`, y `dist/remote.js` valida en el navegador cada plan que recibe.
 
-El estado de progreso es `{ done, phase, progress (0–1), before, best, evaluations, iteration, elapsed }`. `phase` pasa por `voraz` → `recocido` → `pulido` → `listo`. La interfaz no debe llamar a `optimize` en la página para cálculos que el usuario espera: usa `solveAsync`.
+El estado de progreso es `{ done, phase, progress (0–1), before, best, evaluations, iteration, elapsed }`. `phase` pasa por `voraz` → `recocido` → `pulido` → `cota` → `listo`. La interfaz no debe llamar a `optimize` en la página para cálculos que el usuario espera: usa `solveAsync`.
 
 ### Método y opciones
 
@@ -111,6 +140,7 @@ Todos los pasos respetan las reglas; el plan final se recalcula completo y se va
 | `iterations` | `25000` | Pasos por cadena. `0` = solo búsqueda voraz (resultados del motor anterior). |
 | `restarts` | `32` | Número de cadenas. |
 | `timeLimit` | `5000` | Tope de seguridad en ms; si se alcanza, `solver.timeLimited` es verdadero y el plan sigue siendo válido. |
+| `bound` | `true` | Calcula la cota inferior al final. |
 | `heat`, `chill` | `1`, `0.01` | Temperatura inicial (× empeoramiento medio) y temperatura final relativa. |
 | `revertRate`, `movedRate` | `0.05`, `0.15` | Proporción de vecinos que devuelven un producto o mueven uno ya reubicado. |
 

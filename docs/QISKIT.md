@@ -49,6 +49,7 @@ Abre `http://127.0.0.1:8000`: el servicio también sirve la app y se conecta sol
 | `server/quantum/hybrid.py` | Búsqueda por bloques común a ambas codificaciones, con muestreo QAOA, aleatorio o exacto. |
 | `server/quantum/backends.py` | Simuladores ideales (punto 11) y equipos simulados con ruido (punto 12). |
 | `server/quantum/ibm.py` | Hardware de IBM (punto 13). |
+| `server/exact.py` | Cálculo exacto con MILP y HiGHS para problemas pequeños (punto 4). |
 | `server/diagnose.py`, `server/benchmark.py` | Diagnóstico de hardware (12) y benchmark reproducible (19). |
 | `dist/remote.js` | Cliente. Cada plan del servidor se valida otra vez en el navegador con `planFrom`. |
 
@@ -59,7 +60,7 @@ Abre `http://127.0.0.1:8000`: el servicio también sirve la app y se conecta sol
 | `GET /api/health` | Estado, versiones (Python, Qiskit, Aer, Node), motores, ejecutores y `hardware: { account, keyConfigured }`. |
 | `GET /api/backends` | Ejecutores (`kind`: `ideal`, `noisy` o `ibm`) con su límite de qubits. |
 | `POST /api/solve` | Crea un trabajo y responde `202`. En hardware requiere la cabecera `X-Kbit-Key`; sin ella responde `401`, y si el servidor no tiene clave, `403`. |
-| `GET /api/jobs/{id}` | Estado: `queued`, `running`, `done`, `failed` o `cancelled`. Durante el progreso informa la fase (`inicio`, `qaoa`, `control`, `ibm`, `validacion`). Cuando termina, incluye el plan. |
+| `GET /api/jobs/{id}` | Estado: `queued`, `running`, `done`, `failed` o `cancelled`. Durante el progreso informa la fase (`inicio`, `qaoa`, `control`, `ibm`, `modelo`, `milp`, `validacion`). Cuando termina, incluye el plan. |
 | `DELETE /api/jobs/{id}` | Cancela el trabajo, y también el trabajo en IBM si lo hay. |
 
 ```json
@@ -72,7 +73,33 @@ Abre `http://127.0.0.1:8000`: el servicio también sirve la app y se conecta sol
 }
 ```
 
-`spec`, `initial`, `orders` y `rules` siguen `docs/CONTRATO-MOTOR.md`. Con `"solver": "clasico"`, `options` son las del motor (`seed`, `iterations`, …) y el resultado es idéntico al del navegador con la misma semilla.
+`spec`, `initial`, `orders` y `rules` siguen `docs/CONTRATO-MOTOR.md`. Con `"solver": "clasico"`, `options` son las del motor (`seed`, `iterations`, …) y el resultado es idéntico al del navegador con la misma semilla. Con `"solver": "exacto"`, `options` es `{ "timeLimit": 60 }` (segundos, 1–600).
+
+## Cálculo exacto (punto 4)
+
+`server/exact.py` resuelve el problema completo, con las reglas, como programa lineal entero mixto con HiGHS (`scipy.optimize.milp`):
+
+- `x[i, k] = 1` pone el producto movible `i` en la posición `k` (solo las que su zona permite y ningún fijo ocupa). Cada producto en una posición, cada posición con un producto como mucho.
+- Cada par de productos movibles con pedidos en común usa la linealización RLT de primer nivel (Adams–Johnson): `y[i, j, k, l]` representa `x[i, k] · x[j, l]`, con Σₗ y = x[i, k] y Σₖ y = x[j, l]. Con `x` binaria es exacta, y su relajación lineal es mucho más ajustada que la de Kaufman–Broeckx.
+- Los fijos son constantes: sus pares con productos movibles son términos lineales.
+- El máximo de movimientos: Σᵢ x[i, inicialᵢ] ≥ movibles − máximo.
+
+HiGHS devuelve el mejor plan y una cota demostrada; si coinciden, el plan es óptimo (`solver.status: "óptimo"`, `bound.gap` = 0). Al vencer el tiempo devuelve el mejor plan con su brecha. Admite hasta 14 productos movibles y 120.000 variables; por encima responde con un error que pide fijar productos. El plan pasa por `planFrom` como los demás.
+
+Demo de 30 productos con zona de limpieza, fijando todos menos los primeros *N*:
+
+| Movibles | Máx. mov. | Óptimo (MILP) | Recocido | Cota del motor | Variables | Tiempo |
+|---:|---:|---:|---:|---:|---:|---:|
+| 6 | 4 | 4.448 | 4.448 | 4.432 | 504 | 0,05 s |
+| 6 | — | 4.448 | 4.448 | 4.432 | 504 | 0,06 s |
+| 8 | 4 | 4.385 | 4.385 | 3.997 | 1.152 | 1,7 s |
+| 8 | — | 4.013 | 4.013 | 3.860 | 1.152 | 1,6 s |
+| 10 | 4 | 4.222 | 4.222 | 3.739 | 3.080 | 5,8 s |
+| 10 | — | 3.794 | 3.794 | 3.684 | 3.080 | 19,3 s |
+| 12 | 4 | 4.195 | 4.195 | 3.672 | 4.410 | 7,8 s |
+| 12 | — | 3.734 | 3.734 | 3.586 | 4.410 | 17,0 s |
+
+El recocido del navegador alcanzó el óptimo demostrado en los 8 casos. `server/tests/test_exact.py` compara el MILP con la enumeración completa (20.160 distribuciones) con límites, fijos y zonas.
 
 ## Simuladores ideales (punto 11)
 

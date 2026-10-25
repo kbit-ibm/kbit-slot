@@ -59,7 +59,7 @@ Con un diseño guardado, la operación usa sus ubicaciones. En diseños Paralelo
 
 1. **Diseñar almacén:** elige una de las cuatro geometrías, ajusta sus medidas y guarda. **Mi almacén** coloca hasta 30 productos de ejemplo en direcciones de ese diseño.
 2. **Preparar turno:** limita los productos reubicados, fija productos y, si lo necesitas, conserva los productos de limpieza en sus sectores actuales.
-3. **Generar plan:** calcula una propuesta (con barra de avance y opción de cancelar), compara la distribución actual con la propuesta y revisa los productos reubicados.
+3. **Generar plan:** calcula una propuesta (con barra de avance y opción de cancelar), compara la distribución actual con la propuesta y revisa los productos reubicados. Debajo, **Lo que cambia en el piso** muestra el recorrido de picking por pedido antes y después, el recorrido del montacargas y los pares que más se acercan; **Calidad de la solución**, la cota inferior y la brecha máxima al óptimo, el tiempo, las evaluaciones, la curva de convergencia y, a pedido, la variación con otras semillas.
 4. **Tareas:** reproduce el mismo plan sobre tu almacén, revisa los bloques por sector y confirma movimientos en secuencia. Los destinos están libres; la reserva temporal tiene una dirección del diseño.
 5. **Historial:** el turno completado se registra. Recarga para verificar que tu estado se conserva.
 
@@ -68,7 +68,7 @@ En Ayuda puedes reiniciar la demostración. La importación CSV acepta `order_id
 ## Alcance
 
 - Prototipo funcional de una aplicación web, sin servidor de negocio. El archivo independiente y la carpeta `dist/` ya incluyen el motor visual empaquetado; no requieren instalar paquetes para usarlos.
-- Los cálculos son reales sobre los pedidos activos. El motor clásico parte de una búsqueda voraz (intercambios y movimientos a posiciones libres), la refina con 32 cadenas de recocido simulado y pule el mejor resultado. Evalúa cada movimiento de forma incremental, corre en un Web Worker para no congelar la página y con la misma semilla da el mismo plan. En pruebas con pedidos sintéticos queda en promedio a menos de 0,4 % de referencias casi óptimas (la búsqueda voraz sola, entre 3 % y 11 %), en unos 160 ms. No garantiza el óptimo global.
+- Los cálculos son reales sobre los pedidos activos. El motor clásico parte de una búsqueda voraz (intercambios y movimientos a posiciones libres), la refina con 32 cadenas de recocido simulado y pule el mejor resultado. Evalúa cada movimiento de forma incremental, corre en un Web Worker para no congelar la página y con la misma semilla da el mismo plan. En pruebas con pedidos sintéticos queda en promedio a menos de 0,4 % de referencias casi óptimas (la búsqueda voraz sola, entre 3 % y 11 %), en unos 160 ms. No garantiza el óptimo global: cada plan trae una cota inferior demostrada y la brecha máxima, y el motor exacto del servicio (MILP, hasta 14 productos movibles) demuestra el óptimo en problemas pequeños. Las tareas usan el mínimo de pasos y se ordenan para acortar el recorrido del montacargas.
 - El índice suma, una vez por par, la frecuencia de aparición conjunta × distancia por pasillos. En el diseño guardado, las distancias proceden de sus pasillos, cruces y vías diagonales, más acceso al estante y diferencia de altura, según las medidas configuradas. El ejemplo heredado de 4 × 8 conserva sus distancias en unidades del plano.
 - El límite cuenta SKUs cuya ubicación final cambia; una reubicación puede necesitar pasos temporales adicionales.
 - Una dirección de la muestra queda reservada para movimientos temporales. La regla de limpieza conserva cada producto en su sector actual. En el ejemplo heredado se mantienen D08 y la zona D.
@@ -79,7 +79,7 @@ En Ayuda puedes reiniciar la demostración. La importación CSV acepta `order_id
 
 ## Servicio de cálculo y Qiskit (opcional)
 
-Un servicio en Python agrega dos motores a «Preparar turno»: el mismo cálculo clásico en el servidor y un híbrido QAOA de Qiskit, con bloques de intercambios, ventanas con corrección Húngara o ambos. Corre sobre simuladores ideales (Statevector, Aer statevector, Aer MPS), sobre equipos de IBM simulados con su ruido o sobre hardware real de IBM. Ver `docs/QISKIT.md`.
+Un servicio en Python agrega tres motores a «Preparar turno»: el mismo cálculo clásico en el servidor, uno exacto (MILP con HiGHS, para problemas pequeños) y un híbrido QAOA de Qiskit, con bloques de intercambios, ventanas con corrección Húngara o ambos. Corre sobre simuladores ideales (Statevector, Aer statevector, Aer MPS), sobre equipos de IBM simulados con su ruido o sobre hardware real de IBM. Ver `docs/QISKIT.md`.
 
 ```bash
 python -m venv .venv
